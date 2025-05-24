@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sutradhaar Presentation</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Reveal.js core CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js/dist/reveal.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js/dist/theme/black.css" id="theme">
+  
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+  <!-- Custom CSS -->
+  <style id="dynamic-theme">
+    .reveal {
+      font-family: 'Inter', sans-serif;
+    }
+    
+    .reveal h1, .reveal h2, .reveal h3 {
+      font-family: 'Inter', sans-serif;
+      font-weight: 600;
+    }
+    
+    .title-slide {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    
+    .title-slide h1 {
+      font-size: 3.5em;
+      font-weight: 700;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+      margin-bottom: 0.5em;
+    }
+    
+    .section-slide {
+      background: linear-gradient(45deg, #2c3e50 0%, #34495e 100%);
+      color: white;
+      padding: 2em;
+    }
+    
+    .section-slide h2 {
+      font-size: 2.8em;
+      margin-bottom: 0.8em;
+      border-bottom: 3px solid rgba(255,255,255,0.3);
+      padding-bottom: 0.3em;
+    }
+    
+    .section-slide p {
+      font-size: 1.4em;
+      line-height: 1.6;
+      max-width: 80%;
+      margin: 0 auto;
+    }
+    
+    .main-slide {
+      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      color: #2c3e50;
+      padding: 2em;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    
+    .main-slide h2 {
+      font-size: 2.4em;
+      margin-bottom: 0.8em;
+      text-align: center;
+    }
+    
+    .main-slide-content {
+      display: grid;
+      grid-template-columns: 1fr 400px;
+      gap: 3em;
+      align-items: center;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    
+    .main-slide-text {
+      font-size: 1.2em;
+      line-height: 1.7;
+      text-align: left;
+    }
+    
+    .main-slide-image {
+      display: flex;
+      justify-content: center;
+    }
+    
+    .main-slide img {
+      width: 400px;
+      height: 400px;
+      object-fit: cover;
+      border-radius: 20px;
+      box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+      transition: transform 0.3s ease;
+    }
+    
+    .main-slide img:hover {
+      transform: scale(1.05);
+    }
+    
+    .thankyou-slide {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      text-align: center;
+    }
+    
+    .thankyou-slide h3 {
+      font-size: 3em;
+      margin-bottom: 0.5em;
+    }
+    
+    .thankyou-slide p {
+      font-size: 1.4em;
+      opacity: 0.9;
+    }
+    
+    /* Mobile responsive */
+    @media (max-width: 768px) {
+      .main-slide-content {
+        grid-template-columns: 1fr;
+        gap: 2em;
+        text-align: center;
+      }
+      
+      .main-slide img {
+        width: 300px;
+        height: 300px;
+      }
+      
+      .title-slide h1 {
+        font-size: 2.5em;
+      }
+      
+      .section-slide h2 {
+        font-size: 2.2em;
+      }
+    }
+    
+    /* Plain mode */
+    body.plain-mode .reveal section {
+      background: white !important;
+      color: black !important;
+    }
+    
+    body.plain-mode .title-slide,
+    body.plain-mode .section-slide,
+    body.plain-mode .thankyou-slide {
+      background: white !important;
+      color: black !important;
+    }
+    
+    body.plain-mode .section-slide h2 {
+      border-bottom-color: rgba(0,0,0,0.3);
+    }
+    
+    body.plain-mode .main-slide {
+      background: white !important;
+      color: black !important;
+    }
+  </style>
+</head>
+<body>
+
+<div class="reveal">
+  <div class="slides" id="slides-container">
+    <!-- Slides will be dynamically generated here -->
+    <section data-background="#333">
+      <h2>Loading presentation...</h2>
+      <p>Please wait while we fetch your content.</p>
+    </section>
+  </div>
+</div>
+
+<!-- Controls -->
+<div style="position: fixed; top: 20px; right: 20px; z-index: 1000;">
+  <button id="toggle-mode" style="
+    background: rgba(0,0,0,0.7); 
+    color: white; 
+    border: none; 
+    padding: 10px 15px; 
+    border-radius: 5px; 
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+  ">
+    🎨 Toggle Theme
+  </button>
+</div>
+
+<!-- Reveal.js core JS -->
+<script src="https://cdn.jsdelivr.net/npm/reveal.js/dist/reveal.js"></script>
+
+<script>
+// Configuration
+const API_BASE_URL = 'http://localhost:8000'; // Adjust this to your FastAPI URL
+const SCRIPT_ID = new URLSearchParams(window.location.search).get('script_id') || 'script_1748078102';
+
+// Slide templates
+const slideTemplates = {
+  title: (slide) => `
+    <section class="title-slide" data-background-gradient="linear-gradient(135deg, #667eea 0%, #764ba2 100%)">
+      <h1>${slide.title}</h1>
+    </section>
+  `,
+  
+  section: (slide) => `
+    <section class="section-slide" data-background-gradient="linear-gradient(45deg, #2c3e50 0%, #34495e 100%)" data-transition="slide">
+      <h2>${slide.title}</h2>
+      <p>${slide.body}</p>
+    </section>
+  `,
+  
+  main: (slide) => `
+    <section class="main-slide" data-background-gradient="linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)" data-transition="zoom">
+      <h2>${slide.title}</h2>
+      <div class="main-slide-content">
+        <div class="main-slide-text">
+          <p>${slide.body}</p>
+        </div>
+        <div class="main-slide-image">
+          ${slide.image.url ? 
+            `<img src="${API_BASE_URL}${slide.image.url}" alt="${slide.image.alt}" />` : 
+            `<div style="width: 400px; height: 400px; background: #ddd; border-radius: 20px; display: flex; align-items: center; justify-content: center; color: #666;">No Image Available</div>`
+          }
+        </div>
+      </div>
+    </section>
+  `,
+  
+  thankyou: (slide) => `
+    <section class="thankyou-slide" data-background-gradient="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" data-transition="slide">
+      <h3>${slide.title} 🙏</h3>
+      <p style="font-style: italic;">${slide.subtitle}</p>
+    </section>
+  `
+};
+
+// Fetch and render presentation
+async function loadPresentation() {
+  try {
+    console.log(`Loading presentation for script: ${SCRIPT_ID}`);
+    
+    // Fetch presentation data
+    const response = await fetch(`${API_BASE_URL}/presentation/${SCRIPT_ID}`);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const presentation = await response.json();
+    console.log('Presentation data loaded:', presentation);
+    
+    // Update page title
+    document.title = `${presentation.topic} - Sutradhaar`;
+    
+    // Generate slides HTML
+    const slidesHtml = presentation.slides
+      .sort((a, b) => a.order - b.order)
+      .map(slide => slideTemplates[slide.type](slide))
+      .join('');
+    
+    // Update slides container
+    document.getElementById('slides-container').innerHTML = slidesHtml;
+    
+    // Load theme colors
+    await loadTheme();
+    
+    // Initialize Reveal.js
+    Reveal.initialize({
+      controls: true,
+      progress: true,
+      center: true,
+      hash: true,
+      transition: 'fade',
+      transitionSpeed: 'default',
+      backgroundTransition: 'fade'
+    });
+    
+    console.log('Presentation initialized successfully');
+    
+  } catch (error) {
+    console.error('Error loading presentation:', error);
+    document.getElementById('slides-container').innerHTML = `
+      <section data-background="#ff6b6b">
+        <h2>Error Loading Presentation</h2>
+        <p>Script ID: ${SCRIPT_ID}</p>
+        <p>${error.message}</p>
+        <p><small>Please check the console for more details.</small></p>
+      </section>
+    `;
+    
+    // Initialize Reveal.js even with error slide
+    Reveal.initialize({
+      controls: true,
+      progress: true,
+      center: true,
+      hash: true,
+      transition: 'fade'
+    });
+  }
+}
+
+// Load theme colors
+async function loadTheme() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/presentation/${SCRIPT_ID}/theme`);
+    if (response.ok) {
+      const theme = await response.json();
+      applyTheme(theme);
+    }
+  } catch (error) {
+    console.warn('Could not load custom theme, using default');
+  }
+}
+
+// Apply theme colors
+function applyTheme(theme) {
+  const style = document.getElementById('dynamic-theme');
+  const css = `
+    .reveal {
+      font-family: 'Inter', sans-serif;
+    }
+    
+    .title-slide, .thankyou-slide {
+      background: linear-gradient(135deg, ${theme.primary_color} 0%, ${theme.accent_color} 100%) !important;
+    }
+    
+    .section-slide {
+      background: linear-gradient(45deg, ${theme.primary_color} 0%, ${theme.accent_color} 100%) !important;
+    }
+    
+    .main-slide img:hover {
+      box-shadow: 0 15px 35px ${theme.background_color};
+    }
+  `;
+  style.innerHTML += css;
+}
+
+// Toggle between themed and plain mode
+function toggleMode() {
+  document.body.classList.toggle('plain-mode');
+  const button = document.getElementById('toggle-mode');
+  button.textContent = document.body.classList.contains('plain-mode') ? 
+    '🎨 Themed Mode' : '🎨 Plain Mode';
+}
+
+// Event listeners
+document.getElementById('toggle-mode').addEventListener('click', toggleMode);
+
+// Load presentation on page load
+document.addEventListener('DOMContentLoaded', loadPresentation);
+</script>
+
+</body>
+</html>
