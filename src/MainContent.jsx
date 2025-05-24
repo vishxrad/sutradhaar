@@ -19,10 +19,10 @@ function MainContent() {
     <div className="main-container">
       {/* Header */}
       <header className="header">
-        <div className="header-content">
+        {/* <div className="header-content">
           <h1 className="app-title">सूत्रधार</h1>
           <p className="app-subtitle">Topic to 2-Minute Video Generator</p>
-        </div>
+        </div> */}
       </header>
 
       {/* Main Content */}
@@ -70,33 +70,6 @@ function MainContent() {
               </div>
             </div>
           </section>
-
-          {/* Features Section */}
-          {/* <section className="features-section">
-            <h3 className="features-title">What You Get</h3>
-            <div className="features-grid">
-              <div className="feature-card">
-                <div className="feature-icon">🎬</div>
-                <h4>Professional Videos</h4>
-                <p>High-quality 2-minute videos with smooth transitions and animations</p>
-              </div>
-              <div className="feature-card">
-                <div className="feature-icon">📊</div>
-                <h4>Auto-Generated Slides</h4>
-                <p>Beautiful slides created automatically from your topic with relevant content</p>
-              </div>
-              <div className="feature-card">
-                <div className="feature-icon">🎙️</div>
-                <h4>Voice Narration</h4>
-                <p>Natural-sounding voice narration that explains your topic clearly</p>
-              </div>
-              <div className="feature-card">
-                <div className="feature-icon">🖼️</div>
-                <h4>Visual Elements</h4>
-                <p>Relevant images and graphics to make your content more engaging</p>
-              </div>
-            </div>
-          </section> */}
         </div>
       </main>
     </div>

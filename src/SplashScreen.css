@@ -1,0 +1,142 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    /* background-color: #ffe9c0d1; */
+/* Example: gradient background */
+background: linear-gradient(90deg, rgba(251, 239, 239, 1) 35%, rgba(255, 255, 255, 1) 50%);
+
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  
+  .container {
+    text-align: center;
+    max-width: 900px;
+    padding: 2rem;
+  }
+  
+  .logo {
+    margin-bottom: 1rem;
+  }
+  
+  .logo h1 {
+    font-size: 15rem;
+    font-weight: 300;
+    color: #333;
+    letter-spacing: 0;
+    margin: 0;
+    position: relative;
+    word-spacing: -0.2em;
+  }
+  
+  .logo h1 .letter {
+    display: inline-block;
+    opacity: 0;
+  }
+  
+  .logo h1 .letter.animate {
+    animation: fadeInLetter 0.8s ease-in-out forwards;
+  }
+  
+  @keyframes fadeInLetter {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .tagline {
+    font-size: 0.9rem;
+    color: #666;
+    font-weight: 400;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 3rem;
+  }
+  
+  .intro-line {
+    font-size: 1.2rem;
+    color: #f70202;
+    font-weight: 600;
+    font-style: italic;
+    text-align: center;
+    user-select: none;
+    margin-bottom: 2rem;
+    height: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.15s ease-in-out;
+  }
+  
+  .fade-in {
+    opacity: 1;
+  }
+  
+  .fade-out {
+    opacity: 0;
+  }
+  
+  .start-button {
+    width: 100px;
+    height: 100px;
+    background-color: #333;
+    border: none;
+    border-radius: 50%;
+    color: white;
+    font-size: 0.85rem;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  
+  .start-button:hover {
+    background-color: #555;
+    transform: scale(1.05);
+  }
+  
+  .start-button:active {
+    transform: scale(0.95);
+  }
+  
+  @media (max-width: 768px) {
+    .logo h1 {
+      font-size: 4rem;
+    }
+  
+    .start-button {
+      width: 80px;
+      height: 80px;
+      font-size: 0.75rem;
+    }
+  }
+  
+  @media (max-width: 480px) {
+    .logo h1 {
+      font-size: 3rem;
+    }
+  }
+  .transition-container {
+  transition: opacity 0.5s ease !important;
+}
+
+.fade-in {
+  opacity: 1;
+}
+
+.fade-out {
+  opacity: 0;
+}
