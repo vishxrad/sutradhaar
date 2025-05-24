@@ -348,6 +348,7 @@ def parse_script_data(script_text):
         r"Segment\s*\d+\s*:\s*(?P<title>[^\n]+?)\s*"
         r"(?:Summary:\s*(?P<summary>.*?)\s*)?"
         r"\s*(?P<slides_block>Slide\s*\d+:.*?)"
+        
         r"(?=(Segment\s*\d+\s*:|$))",
         re.DOTALL | re.IGNORECASE
     )
