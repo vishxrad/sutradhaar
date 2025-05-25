@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sutradhaar - AI Presentation Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            padding: 30px;
+            text-align: center;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .input-section {
+            margin-bottom: 30px;
+        }
+
+        .input-section label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #333;
+            font-size: 1.1em;
+        }
+
+        .input-section input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e1e8ed;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        .input-section input:focus {
+            outline: none;
+            border-color: #4facfe;
+        }
+
+        .generate-btn {
+            width: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            font-weight: 600;
+        }
+
+        .generate-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+
+        .generate-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .status-section {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: white;
+            border-radius: 6px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .status-icon {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .status-pending {
+            background: #ffc107;
+            color: white;
+        }
+
+        .status-loading {
+            background: #17a2b8;
+            color: white;
+            animation: pulse 1.5s infinite;
+        }
+
+        .status-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .status-error {
+            background: #dc3545;
+            color: white;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+
+        .script-preview {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .script-preview h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .segment {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 6px;
+            border-left: 4px solid #4facfe;
+        }
+
+        .segment h4 {
+            color: #4facfe;
+            margin-bottom: 8px;
+        }
+
+        .segment p {
+            color: #666;
+            line-height: 1.5;
+        }
+
+        .download-section {
+            margin-top: 20px;
+            padding: 20px;
+            background: #e8f5e8;
+            border-radius: 8px;
+            text-align: center;
+            display: none;
+        }
+
+        .download-btn {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-block;
+            transition: background 0.3s;
+        }
+
+        .download-btn:hover {
+            background: #218838;
+        }
+
+        .error-section {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 8px;
+            color: #721c24;
+            display: none;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 Sutradhaar</h1>
+            <p>AI-Powered Presentation Generator</p>
+        </div>
+        
+        <div class="content">
+            <div class="input-section">
+                <label for="topic">Enter your presentation topic:</label>
+                <input type="text" id="topic" placeholder="e.g., Introduction to Machine Learning, Climate Change, etc." />
+            </div>
+            
+            <button class="generate-btn" id="generateBtn" onclick="generatePresentation()">
+                <span id="btnText">Generate Presentation</span>
+                <span id="btnSpinner" style="display: none;"><span class="loading-spinner"></span> Generating...</span>
+            </button>
+            
+            <div class="status-section" id="statusSection">
+                <h3>Progress Status</h3>
+                <div class="status-item" id="scriptStatus">
+                    <div class="status-icon status-pending">1</div>
+                    <div>
+                        <strong>Generating Script</strong>
+                        <div class="status-text">Creating educational content structure...</div>
+                    </div>
+                </div>
+                <div class="status-item" id="imagesStatus">
+                    <div class="status-icon status-pending">2</div>
+                    <div>
+                        <strong>Generating Images</strong>
+                        <div class="status-text">Creating visual content for slides...</div>
+                    </div>
+                </div>
+                <div class="status-item" id="pdfStatus">
+                    <div class="status-icon status-pending">3</div>
+                    <div>
+                        <strong>Creating PDF</strong>
+                        <div class="status-text">Compiling final presentation...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="script-preview" id="scriptPreview">
+                <h3>📄 Generated Script Preview</h3>
+                <div id="scriptContent"></div>
+            </div>
+            
+            <div class="download-section" id="downloadSection">
+                <h3>🎉 Presentation Ready!</h3>
+                <p>Your presentation has been generated successfully.</p>
+                <a href="#" class="download-btn" id="downloadBtn" download>
+                    📥 Download PDF Presentation
+                </a>
+            </div>
+            
+            <div class="error-section" id="errorSection">
+                <h3>❌ Error</h3>
+                <div id="errorMessage"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';  // Adjust if your FastAPI server runs on a different port
+        
+        async function generatePresentation() {
+            const topic = document.getElementById('topic').value.trim();
+            
+            if (!topic) {
+                showError('Please enter a topic for your presentation.');
+                return;
+            }
+            
+            // Reset UI
+            resetUI();
+            setButtonLoading(true);
+            document.getElementById('statusSection').style.display = 'block';
+            
+            try {
+                // Step 1: Generate Script
+                updateStatus('scriptStatus', 'loading', 'Generating script content...');
+                const scriptResponse = await fetch(`${API_BASE}/generate-script`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ topic: topic }),
+                });
+                
+                if (!scriptResponse.ok) {
+                    throw new Error(`Script generation failed: ${scriptResponse.statusText}`);
+                }
+                
+                const scriptData = await scriptResponse.json();
+                const scriptId = scriptData.script_id;
+                
+                updateStatus('scriptStatus', 'success', 'Script generated successfully!');
+                showScriptPreview(scriptData.parsed_script, scriptData.topic);
+                
+                // Step 2: Generate Images
+                updateStatus('imagesStatus', 'loading', 'Generating images for slides...');
+                const imagesResponse = await fetch(`${API_BASE}/generate-images`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        script_id: scriptId,
+                        use_unsplash_fallback: true 
+                    }),
+                });
+                
+                if (!imagesResponse.ok) {
+                    throw new Error(`Image generation failed: ${imagesResponse.statusText}`);
+                }
+                
+                const imagesData = await imagesResponse.json();
+                updateStatus('imagesStatus', 'success', 
+                    `Images generated! (${imagesData.stats.vertex_ai_success} AI + ${imagesData.stats.unsplash_fallback} stock)`
+                );
+                
+                // Step 3: Generate PDF
+                updateStatus('pdfStatus', 'loading', 'Creating PDF presentation...');
+                const pdfResponse = await fetch(`${API_BASE}/presentation/${scriptId}/pdf`);
+                
+                if (!pdfResponse.ok) {
+                    throw new Error(`PDF generation failed: ${pdfResponse.statusText}`);
+                }
+                
+                // Create blob URL for download
+                const pdfBlob = await pdfResponse.blob();
+                const pdfUrl = URL.createObjectURL(pdfBlob);
+                
+                updateStatus('pdfStatus', 'success', 'PDF presentation ready!');
+                showDownloadSection(pdfUrl, `${topic.replace(/[^a-zA-Z0-9]/g, '_')}_presentation.pdf`);
+                
+            } catch (error) {
+                console.error('Error:', error);
+                showError(`Generation failed: ${error.message}`);
+            } finally {
+                setButtonLoading(false);
+            }
+        }
+        
+        function updateStatus(elementId, status, message) {
+            const element = document.getElementById(elementId);
+            const icon = element.querySelector('.status-icon');
+            const text = element.querySelector('.status-text');
+            
+            // Reset classes
+            icon.className = 'status-icon';
+            
+            // Add new status class
+            switch(status) {
+                case 'loading':
+                    icon.classList.add('status-loading');
+                    icon.innerHTML = '⏳';
+                    break;
+                case 'success':
+                    icon.classList.add('status-success');
+                    icon.innerHTML = '✓';
+                    break;
+                case 'error':
+                    icon.classList.add('status-error');
+                    icon.innerHTML = '✗';
+                    break;
+                default:
+                    icon.classList.add('status-pending');
+                    icon.innerHTML = icon.innerHTML; // Keep original number
+            }
+            
+            text.textContent = message;
+        }
+        
+        function showScriptPreview(parsedScript, topic) {
+            const previewSection = document.getElementById('scriptPreview');
+            const content = document.getElementById('scriptContent');
+            
+            let html = `<div class="segment"><h4>📋 Topic: ${topic}</h4></div>`;
+            
+            parsedScript.forEach((segment, index) => {
+                html += `
+                    <div class="segment">
+                        <h4>📚 Segment ${index + 1}: ${segment.segment_title}</h4>
+                        <p><strong>Summary:</strong> ${segment.summary}</p>
+                        <p><strong>Slides:</strong> ${segment.slides.length} slides with narration and visuals</p>
+                    </div>
+                `;
+            });
+            
+            content.innerHTML = html;
+            previewSection.style.display = 'block';
+        }
+        
+        function showDownloadSection(pdfUrl, filename) {
+            const downloadSection = document.getElementById('downloadSection');
+            const downloadBtn = document.getElementById('downloadBtn');
+            
+            downloadBtn.href = pdfUrl;
+            downloadBtn.download = filename;
+            downloadSection.style.display = 'block';
+        }
+        
+        function showError(message) {
+            const errorSection = document.getElementById('errorSection');
+            const errorMessage = document.getElementById('errorMessage');
+            
+            errorMessage.textContent = message;
+            errorSection.style.display = 'block';
+        }
+        
+        function setButtonLoading(loading) {
+            const btn = document.getElementById('generateBtn');
+            const btnText = document.getElementById('btnText');
+            const btnSpinner = document.getElementById('btnSpinner');
+            
+            btn.disabled = loading;
+            btnText.style.display = loading ? 'none' : 'inline';
+            btnSpinner.style.display = loading ? 'inline' : 'none';
+        }
+        
+        function resetUI() {
+            document.getElementById('statusSection').style.display = 'none';
+            document.getElementById('scriptPreview').style.display = 'none';
+            document.getElementById('downloadSection').style.display = 'none';
+            document.getElementById('errorSection').style.display = 'none';
+            
+            // Reset status items
+            ['scriptStatus', 'imagesStatus', 'pdfStatus'].forEach((id, index) => {
+                const element = document.getElementById(id);
+                const icon = element.querySelector('.status-icon');
+                const text = element.querySelector('.status-text');
+                
+                icon.className = 'status-icon status-pending';
+                icon.innerHTML = index + 1;
+                
+                const messages = [
+                    'Creating educational content structure...',
+                    'Creating visual content for slides...',
+                    'Compiling final presentation...'
+                ];
+                text.textContent = messages[index];
+            });
+        }
+        
+        // Allow Enter key to trigger generation
+        document.getElementById('topic').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                generatePresentation();
+            }
+        });
+    </script>
+</body>
+</html>

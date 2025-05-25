@@ -23,13 +23,24 @@ from jinja2 import Template
 import base64
 from pathlib import Path
 from presentation_templates import generate_html_template, get_theme_colors
+from fastapi.middleware.cors import CORSMiddleware
+
 
 load_dotenv()
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
+
 # Add static file serving for images
 app.mount("/images", StaticFiles(directory="generated_images"), name="images")
+app.mount("/presentations", StaticFiles(directory="generated_presentations"), name="presentations")
 
 # Database configuration
 DATABASE_PATH = "sutradhaar.db"
@@ -94,6 +105,20 @@ def init_database():
                 parsed_script TEXT NOT NULL,
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL
+            )
+        ''')
+        
+        # Create presentations table - NEW
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS presentations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                script_id TEXT NOT NULL,
+                pdf_path TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                file_size INTEGER,
+                FOREIGN KEY (script_id) REFERENCES scripts (script_id),
+                UNIQUE(script_id)
             )
         ''')
         
@@ -358,7 +383,6 @@ def parse_script_data(script_text):
         r"Segment\s*\d+\s*:\s*(?P<title>[^\n]+?)\s*"
         r"(?:Summary:\s*(?P<summary>.*?)\s*)?"
         r"\s*(?P<slides_block>Slide\s*\d+:.*?)"
-
         r"(?=(Segment\s*\d+\s*:|$))",
         re.DOTALL | re.IGNORECASE
     )
@@ -447,8 +471,9 @@ async def search_unsplash_image_async(query: str, unsplash_access_key: Optional[
         headers = {"Authorization": f"Client-ID {unsplash_access_key}"}
         params = {
             "query": query,
-            "per_page": 1,
-            "orientation": "landscape"
+            "per_page": 5,
+            "orientation": "landscape",
+            "order_by": "popular"  # or "latest", "oldest", "popular"
         }
         
         timeout = aiohttp.ClientTimeout(total=10)  # 10 second timeout
@@ -458,7 +483,11 @@ async def search_unsplash_image_async(query: str, unsplash_access_key: Optional[
                 data = await response.json()
                 
                 if data["results"]:
-                    return data["results"][0]["urls"]["regular"]
+                    # Pick from top 3 most popular
+                    top_results = data["results"][:3]
+                    import random
+                    selected = random.choice(top_results)
+                    return selected["urls"]["regular"]
                 else:
                     return None
                     
@@ -603,7 +632,7 @@ def generate_script(request: ScriptRequest):
     - Divide the segment into 4 slides.
         For each of the 4 slides:
         - Provide a short title (max 5 words).
-        - Write a narration script of approximately 200 words (so that 4 slides total ~200 words for the segment).
+        - Write a narration script of approximately 50 words (so that 4 slides total ~200 words for the segment).
         - Suggest a visual description (image prompt for an AI image generator or Unsplash search). Make sure the prompt is not very complex and easy to understand by text to image models.
 
     Format the output cleanly, following this structure for each segment:
@@ -612,19 +641,19 @@ def generate_script(request: ScriptRequest):
     Summary: [Segment Summary Here]
     Slide 1:
     Title: [Slide 1 Title]
-    Narration: [Slide 1 Narration - approx 200 words]
+    Narration: [Slide 1 Narration - approx 50 words]
     Image prompt: [Slide 1 Image Prompt]
     Slide 2:
     Title: [Slide 2 Title]
-    Narration: [Slide 2 Narration - approx 200 words]
+    Narration: [Slide 2 Narration - approx 50 words]
     Image prompt: [Slide 2 Image Prompt]
     Slide 3:
     Title: [Slide 3 Title]
-    Narration: [Slide 3 Narration - approx 200 words]
+    Narration: [Slide 3 Narration - approx 50 words]
     Image prompt: [Slide 3 Image Prompt]
     Slide 4:
     Title: [Slide 4 Title]
-    Narration: [Slide 4 Narration - approx 200 words]
+    Narration: [Slide 4 Narration - approx 50 words]
     Image prompt: [Slide 4 Image Prompt]
 
     Ensure this structure is repeated for all 5 segments.
@@ -640,6 +669,7 @@ def generate_script(request: ScriptRequest):
         )
         raw_script_data = response.choices[0].message.content
         parsed_script_data = parse_script_data(raw_script_data)
+        print(parsed_script_data)
         
         # Generate a unique script ID
         script_id = f"script_{int(time.time())}"
@@ -944,6 +974,7 @@ def generate_presentation_html(script_id: str):
 async def generate_presentation_pdf(script_id: str):
     """
     Generate and return a PDF presentation using Decktape
+    Saves PDF to generated_presentations folder and stores path in database
     Returns the PDF file directly for download
     """
     import subprocess
@@ -955,19 +986,33 @@ async def generate_presentation_pdf(script_id: str):
     if not script_data:
         raise HTTPException(status_code=404, detail="Script not found")
     
+    # Check if PDF already exists
+    existing_presentation = get_presentation_from_db(script_id)
+    if existing_presentation and os.path.exists(existing_presentation["pdf_path"]):
+        # Return existing PDF
+        return FileResponse(
+            path=existing_presentation["pdf_path"],
+            media_type="application/pdf",
+            filename=existing_presentation["filename"],
+            headers={"Content-Disposition": f"attachment; filename={existing_presentation['filename']}"}
+        )
+    
     # Get the HTML content from the existing endpoint logic
     html_result = generate_presentation_html(script_id)
     html_content = html_result["html_content"]
     
-    # Create temporary files
+    # Create temporary HTML file (will be deleted after PDF generation)
     with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as temp_html:
         temp_html.write(html_content)
         temp_html_path = temp_html.name
     
-    # Create temporary PDF file
-    temp_pdf = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
-    temp_pdf_path = temp_pdf.name
-    temp_pdf.close()
+    # Create generated_presentations directory if it doesn't exist
+    presentations_dir = "generated_presentations"
+    os.makedirs(presentations_dir, exist_ok=True)
+    
+    # Create permanent PDF file path
+    filename = f"{script_id}_presentation.pdf"
+    pdf_path = os.path.join(presentations_dir, filename)
     
     try:
         # Run Decktape to convert HTML to PDF
@@ -975,11 +1020,11 @@ async def generate_presentation_pdf(script_id: str):
             "decktape",
             "reveal",
             temp_html_path,
-            temp_pdf_path,
+            pdf_path,
         ]
         
         # Execute Decktape
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         
         if result.returncode != 0:
             raise HTTPException(
@@ -988,20 +1033,33 @@ async def generate_presentation_pdf(script_id: str):
             )
         
         # Check if PDF was created
-        if not os.path.exists(temp_pdf_path) or os.path.getsize(temp_pdf_path) == 0:
+        if not os.path.exists(pdf_path) or os.path.getsize(pdf_path) == 0:
             raise HTTPException(status_code=500, detail="PDF file was not created")
         
-        # Return the PDF file
-        filename = f"{script_id}_presentation.pdf"
+        # Get file size
+        file_size = os.path.getsize(pdf_path)
         
+        # Save presentation info to database
+        if not save_presentation_to_db(script_id, pdf_path, filename, file_size):
+            print("Warning: PDF generated but failed to save to database")
+        
+        print(f"PDF saved successfully: {pdf_path} ({file_size} bytes)")
+        
+        # Return the PDF file
         return FileResponse(
-            path=temp_pdf_path,
+            path=pdf_path,
             media_type="application/pdf",
             filename=filename,
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
         
     except subprocess.TimeoutExpired:
+        # Clean up PDF file if it was partially created
+        if os.path.exists(pdf_path):
+            try:
+                os.unlink(pdf_path)
+            except:
+                pass
         raise HTTPException(status_code=500, detail="PDF generation timed out")
     except FileNotFoundError:
         raise HTTPException(
@@ -1009,12 +1067,67 @@ async def generate_presentation_pdf(script_id: str):
             detail="Decktape not found. Please install it with: npm install -g decktape"
         )
     except Exception as e:
+        # Clean up PDF file if it was partially created
+        if os.path.exists(pdf_path):
+            try:
+                os.unlink(pdf_path)
+            except:
+                pass
         raise HTTPException(status_code=500, detail=f"Error generating PDF: {str(e)}")
     finally:
-        # Clean up temporary HTML file
+        # Clean up temporary HTML file (we don't store this)
         try:
             os.unlink(temp_html_path)
         except:
             pass
-        # Note: temp_pdf_path will be cleaned up by FastAPI after response is sent
+
+def save_presentation_to_db(script_id: str, pdf_path: str, filename: str, file_size: int) -> bool:
+    """Save presentation PDF path to database"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            current_time = time.time()
+            
+            cursor.execute('''
+                INSERT OR REPLACE INTO presentations 
+                (script_id, pdf_path, filename, created_at, file_size)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (
+                script_id,
+                pdf_path,
+                filename,
+                current_time,
+                file_size
+            ))
+            
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"Error saving presentation to database: {e}")
+        return False
+
+def get_presentation_from_db(script_id: str) -> Optional[dict]:
+    """Retrieve presentation data from database"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT script_id, pdf_path, filename, created_at, file_size
+                FROM presentations WHERE script_id = ?
+            ''', (script_id,))
+            
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "script_id": row["script_id"],
+                    "pdf_path": row["pdf_path"],
+                    "filename": row["filename"],
+                    "created_at": row["created_at"],
+                    "file_size": row["file_size"]
+                }
+            return None
+    except Exception as e:
+        print(f"Error retrieving presentation from database: {e}")
+        return None
 

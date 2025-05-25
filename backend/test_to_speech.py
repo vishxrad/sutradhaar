@@ -35,8 +35,20 @@ def synthesize_text_with_rate(text, speaking_rate="75%", output_filename="output
 
 if __name__ == "__main__":
     text_to_synthesize = """
-Today, there are over 1,000 types of mangoes cultivated worldwide, including varieties like Tommy Atkins, Kent, and Nam Dok Mai. This diversity reflects local tastes and climates, enriching our global appreciation for this beloved fruit.",
-            "image_prompt": "A colorful display of different mango varieties at a farmer's market."""
+One of the most promising areas for AI in healthcare
+is diagnostics. Traditional diagnostic methods, while
+effective, can be time-consuming and subject to
+human error. AI dramatically speeds up this
+process. Machine learning algorithms can analyze
+thousands of images or datasets in mere seconds,
+identifying patterns that can indicate the presence
+of diseases. For instance, in radiology, AI software
+can interpret X-rays and MRIs to detect conditions
+like tumors with remarkable accuracy, sometimes
+outperforming human radiologists. With these
+capabilities, AI can begin to take a more central role
+in the diagnostics domain, leading to quicker, more
+reliable outcomes."""
     synthesize_text_with_rate(text_to_synthesize, speaking_rate="75%")
     synthesize_text_with_rate(text_to_synthesize, speaking_rate="50%", output_filename="output_very_slower.mp3")
     synthesize_text_with_rate(text_to_synthesize, speaking_rate="125%", output_filename="output_faster.mp3")
