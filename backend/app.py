@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 import openai
 import os
 import re
@@ -21,6 +22,7 @@ import mimetypes
 from jinja2 import Template
 import base64
 from pathlib import Path
+from presentation_templates import generate_html_template, get_theme_colors
 
 load_dotenv()
 
@@ -39,6 +41,14 @@ class ScriptRequest(BaseModel):
 class ImageRequest(BaseModel):
     script_id: str
     use_unsplash_fallback: bool = True
+
+class PresentationRequest(BaseModel):
+    script_id: str
+    template: str = "modern"
+
+class HTMLGenerationRequest(BaseModel):
+    script_id: str
+    template: str = "modern"
 
 # Initialize OpenAI client
 if "OPENAI_API_KEY" not in os.environ:
@@ -348,7 +358,7 @@ def parse_script_data(script_text):
         r"Segment\s*\d+\s*:\s*(?P<title>[^\n]+?)\s*"
         r"(?:Summary:\s*(?P<summary>.*?)\s*)?"
         r"\s*(?P<slides_block>Slide\s*\d+:.*?)"
-        
+
         r"(?=(Segment\s*\d+\s*:|$))",
         re.DOTALL | re.IGNORECASE
     )
@@ -834,149 +844,8 @@ def get_generation_status(script_id: str):
         "status": "complete" if generated_images == expected_images and expected_images > 0 else "partial" if generated_images > 0 else "none"
     }
 
-@app.get("/presentation/{script_id}")
-def generate_presentation_data(script_id: str):
-    """
-    Generate presentation JSON data for Reveal.js frontend
-    Returns 27 slides: 1 title + 5 sections + 20 main + 1 thank you
-    """
-    # Get script data
-    script_data = get_script_from_db(script_id)
-    if not script_data:
-        raise HTTPException(status_code=404, detail="Script not found")
-    
-    # Get images data directly from database for better performance
-    images_data = get_images_from_db(script_id)
-    
-    presentation = {
-        "script_id": script_id,
-        "topic": script_data["topic"],
-        "slides": [],
-        "metadata": {
-            "total_slides": 27,
-            "created_at": script_data["timestamp"],
-            "has_images": len(images_data) > 0
-        }
-    }
-    
-    # 1. Title Slide
-    presentation["slides"].append({
-        "type": "title",
-        "id": "title_slide",
-        "title": script_data["topic"],
-        "order": 1
-    })
-    
-    # 2-6. Process 5 Segments (Section + 4 Main slides each)
-    segments_data = script_data["parsed_script"]
-    slide_order = 2
-    
-    for segment_idx, segment in enumerate(segments_data, 1):
-        segment_title = segment.get('segment_title', f'Segment {segment_idx}')
-        segment_summary = segment.get('summary', '')
-        
-        # Section Slide for this segment
-        presentation["slides"].append({
-            "type": "section",
-            "id": f"section_{segment_idx}",
-            "title": segment_title,
-            "body": segment_summary,
-            "segment_number": segment_idx,
-            "order": slide_order
-        })
-        slide_order += 1
-        
-        # 4 Main slides for this segment
-        for slide_idx, slide in enumerate(segment.get('slides', []), 1):
-            slide_key = f"segment_{segment_idx}_slide_{slide_idx}"
-            
-            # Get image data for this slide
-            image_info = images_data.get(slide_key, {})
-            image_url = None
-            if image_info.get('image_path'):
-                # Convert local path to served URL
-                image_url = f"/images/{script_id}/{image_info['image_path'].split('/')[-1]}"
-            
-            presentation["slides"].append({
-                "type": "main",
-                "id": f"main_{segment_idx}_{slide_idx}",
-                "title": slide.get('title', f'Slide {slide_idx}'),
-                "body": slide.get('narration', ''),
-                "image": {
-                    "url": image_url,
-                    "alt": slide.get('image_prompt', ''),
-                    "source": image_info.get('source', 'none')
-                },
-                "segment_number": segment_idx,
-                "slide_number": slide_idx,
-                "order": slide_order
-            })
-            slide_order += 1
-    
-    # 27. Thank You Slide
-    presentation["slides"].append({
-        "type": "thankyou",
-        "id": "thankyou_slide",
-        "title": "Thank You",
-        "subtitle": "Made using Sutradhaar",
-        "order": 27
-    })
-    
-    return presentation
 
-@app.get("/presentation/{script_id}/theme")
-def get_presentation_theme(script_id: str):
-    """
-    Generate theme colors based on the first available image
-    """
-    try:
-        images_data = get_images_from_db(script_id)
-        
-        # Find first available image
-        first_image_path = None
-        for image_info in images_data.values():
-            if image_info.get('image_path'):
-                first_image_path = image_info['image_path']
-                break
-        
-        if first_image_path and os.path.exists(first_image_path):
-            # Use ColorThief to extract dominant color
-            from colorthief import ColorThief
-            color_thief = ColorThief(first_image_path)
-            dominant_color = color_thief.get_color(quality=1)
-            
-            # Generate complementary colors
-            r, g, b = dominant_color
-            
-            return {
-                "primary_color": f"rgb({r}, {g}, {b})",
-                "primary_hex": f"#{r:02x}{g:02x}{b:02x}",
-                "background_color": f"rgba({r}, {g}, {b}, 0.1)",
-                "text_color": "white" if (r + g + b) < 384 else "black",
-                "accent_color": f"rgb({min(255, r+50)}, {min(255, g+50)}, {min(255, b+50)})"
-            }
-        else:
-            # Default theme
-            return {
-                "primary_color": "rgb(74, 144, 226)",
-                "primary_hex": "#4a90e2",
-                "background_color": "rgba(74, 144, 226, 0.1)",
-                "text_color": "white",
-                "accent_color": "rgb(124, 194, 255)"
-            }
-            
-    except Exception as e:
-        print(f"Error generating theme: {e}")
-        # Return default theme on error
-        return {
-            "primary_color": "rgb(74, 144, 226)",
-            "primary_hex": "#4a90e2", 
-            "background_color": "rgba(74, 144, 226, 0.1)",
-            "text_color": "white",
-            "accent_color": "rgb(124, 194, 255)"
-        }
-
-@app.get("/presentation/{script_id}/html")
+# @app.get("/presentation/{script_id}/html")
 def generate_presentation_html(script_id: str):
     """
     Generate a complete standalone HTML file for the presentation
@@ -1071,550 +940,81 @@ def generate_presentation_html(script_id: str):
         "filename": f"{script_id}_presentation.html"
     }
 
-@app.get("/presentation/{script_id}/download")
-def download_presentation_html(script_id: str):
-    """
-    Download the presentation as an HTML file
-    """
-    from fastapi.responses import Response
-    
-    result = generate_presentation_html(script_id)
-    
-    # Return as downloadable file
-    return Response(
-        content=result["html_content"],
-        media_type="text/html",
-        headers={"Content-Disposition": f"attachment; filename={result['filename']}"}
-    )
-
-def get_theme_colors(images_data: dict) -> dict:
-    """Extract theme colors from the first available image"""
-    try:
-        # Find first available image
-        first_image_path = None
-        for image_info in images_data.values():
-            if image_info.get('image_path') and os.path.exists(image_info['image_path']):
-                first_image_path = image_info['image_path']
-                break
-        
-        if first_image_path:
-            from colorthief import ColorThief
-            color_thief = ColorThief(first_image_path)
-            dominant_color = color_thief.get_color(quality=1)
-            r, g, b = dominant_color
-            
-            return {
-                "primary_color": f"rgb({r}, {g}, {b})",
-                "primary_hex": f"#{r:02x}{g:02x}{b:02x}",
-                "background_color": f"rgba({r}, {g}, {b}, 0.1)",
-                "text_color": "white" if (r + g + b) < 384 else "black",
-                "accent_color": f"rgb({min(255, r+50)}, {min(255, g+50)}, {min(255, b+50)})"
-            }
-    except Exception as e:
-        print(f"Error generating theme: {e}")
-    
-    # Default theme
-    return {
-        "primary_color": "rgb(74, 144, 226)",
-        "primary_hex": "#4a90e2",
-        "background_color": "rgba(74, 144, 226, 0.1)",
-        "text_color": "white",
-        "accent_color": "rgb(124, 194, 255)"
-    }
-
-def generate_html_template(topic: str, slides: list, theme: dict, script_id: str) -> str:
-    """Generate the complete HTML presentation with 16:9 aspect ratio"""
-    
-    template_str = """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>{{ topic }} - Sutradhaar Presentation</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  
-  <!-- Reveal.js core CSS -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js/dist/reveal.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js/dist/theme/black.css">
-  
-  <!-- Google Fonts -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
-
-  <style>
-    /* Force 16:9 aspect ratio */
-    html, body {
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-    }
-    
-    .reveal {
-      font-family: 'Inter', sans-serif;
-      width: 100vw !important;
-      height: 100vh !important;
-    }
-    
-    .reveal .slides {
-      width: 1920px !important;
-      height: 1080px !important;
-      left: 50% !important;
-      top: 50% !important;
-      transform: translate(-50%, -50%) scale(var(--reveal-scale, 1)) !important;
-      transform-origin: center center !important;
-    }
-    
-    .reveal .slides section {
-      width: 1920px !important;
-      height: 1080px !important;
-      padding: 60px !important;
-      box-sizing: border-box !important;
-      display: flex !important;
-      flex-direction: column !important;
-      justify-content: center !important;
-    }
-    
-    .reveal h1, .reveal h2, .reveal h3 {
-      font-family: 'Inter', sans-serif;
-      font-weight: 600;
-      margin: 0 !important;
-    }
-    
-    /* Title Slide - 16:9 optimized */
-    .title-slide {
-      background: linear-gradient(135deg, {{ theme.primary_color }} 0%, {{ theme.accent_color }} 100%);
-      color: white;
-      text-align: center;
-    }
-    
-    .title-slide h1 {
-      font-size: 120px;
-      font-weight: 700;
-      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-      line-height: 1.2;
-      max-width: 1600px;
-      margin: 0 auto;
-    }
-    
-    /* Section Slide - 16:9 optimized */
-    .section-slide {
-      background: linear-gradient(45deg, {{ theme.primary_color }} 0%, {{ theme.accent_color }} 100%);
-      color: white;
-      text-align: center;
-    }
-    
-    .section-slide h2 {
-      font-size: 96px;
-      margin-bottom: 60px;
-      border-bottom: 6px solid rgba(255,255,255,0.3);
-      padding-bottom: 30px;
-      max-width: 1600px;
-      margin-left: auto;
-      margin-right: auto;
-    }
-    
-    .section-slide p {
-      font-size: 48px;
-      line-height: 1.6;
-      max-width: 1400px;
-      margin: 0 auto;
-    }
-    
-    /* Main Slide - 16:9 optimized */
-    .main-slide {
-      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-      color: #2c3e50;
-    }
-    
-    .main-slide h2 {
-      font-size: 84px;
-      margin-bottom: 60px;
-      text-align: center;
-      max-width: 1600px;
-      margin-left: auto;
-      margin-right: auto;
-    }
-    
-    .main-slide-content {
-      display: grid;
-      grid-template-columns: 1fr 480px;
-      gap: 80px;
-      align-items: center;
-      max-width: 1600px;
-      margin: 0 auto;
-      height: auto;
-    }
-    
-    .main-slide-text {
-      font-size: 42px;
-      line-height: 1.7;
-      text-align: left;
-    }
-    
-    .main-slide-image {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
-    
-    .main-slide img {
-      width: 480px;
-      height: 480px;
-      object-fit: cover;
-      border-radius: 30px;
-      box-shadow: 0 20px 50px rgba(0,0,0,0.15);
-      transition: transform 0.3s ease;
-    }
-    
-    .main-slide img:hover {
-      transform: scale(1.05);
-    }
-    
-    .no-image-placeholder {
-      width: 480px;
-      height: 480px;
-      background: #ddd;
-      border-radius: 30px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #666;
-      font-size: 32px;
-      text-align: center;
-    }
-    
-    /* Thank You Slide - 16:9 optimized */
-    .thankyou-slide {
-      background: linear-gradient(135deg, {{ theme.primary_color }} 0%, {{ theme.accent_color }} 100%);
-      color: white;
-      text-align: center;
-    }
-    
-    .thankyou-slide h3 {
-      font-size: 108px;
-      margin-bottom: 40px;
-    }
-    
-    .thankyou-slide p {
-      font-size: 48px;
-      opacity: 0.9;
-    }
-    
-    /* Controls - Scaled for 16:9 */
-    .controls {
-      position: fixed;
-      top: 40px;
-      right: 40px;
-      z-index: 1000;
-    }
-    
-    .controls button {
-      background: rgba(0,0,0,0.7);
-      color: white;
-      border: none;
-      padding: 20px 30px;
-      border-radius: 10px;
-      cursor: pointer;
-      font-family: 'Inter', sans-serif;
-      font-size: 18px;
-      margin-left: 20px;
-    }
-    
-    .controls button:hover {
-      background: rgba(0,0,0,0.9);
-    }
-    
-    /* Responsive scaling for different screen sizes */
-    @media screen and (max-width: 1920px) {
-      .reveal .slides {
-        transform: translate(-50%, -50%) scale(calc(100vw / 1920)) !important;
-      }
-    }
-    
-    @media screen and (max-height: 1080px) {
-      .reveal .slides {
-        transform: translate(-50%, -50%) scale(calc(100vh / 1080)) !important;
-      }
-    }
-    
-    @media screen and (max-width: 1920px) and (max-height: 1080px) {
-      .reveal .slides {
-        transform: translate(-50%, -50%) scale(min(calc(100vw / 1920), calc(100vh / 1080))) !important;
-      }
-    }
-    
-    /* Mobile responsive - maintain 16:9 but scale content */
-    @media (max-width: 768px) {
-      .main-slide-content {
-        grid-template-columns: 1fr;
-        gap: 40px;
-        text-align: center;
-      }
-      
-      .main-slide img,
-      .no-image-placeholder {
-        width: 360px;
-        height: 360px;
-      }
-      
-      .title-slide h1 {
-        font-size: 80px;
-      }
-      
-      .section-slide h2 {
-        font-size: 64px;
-      }
-      
-      .main-slide h2 {
-        font-size: 56px;
-      }
-      
-      .main-slide-text {
-        font-size: 32px;
-      }
-      
-      .section-slide p {
-        font-size: 36px;
-      }
-      
-      .thankyou-slide h3 {
-        font-size: 72px;
-      }
-      
-      .thankyou-slide p {
-        font-size: 36px;
-      }
-    }
-    
-    /* Plain mode */
-    body.plain-mode .reveal section {
-      background: white !important;
-      color: black !important;
-    }
-    
-    body.plain-mode .title-slide,
-    body.plain-mode .section-slide,
-    body.plain-mode .thankyou-slide {
-      background: white !important;
-      color: black !important;
-    }
-    
-    body.plain-mode .section-slide h2 {
-      border-bottom-color: rgba(0,0,0,0.3);
-    }
-    
-    body.plain-mode .main-slide {
-      background: white !important;
-      color: black !important;
-    }
-    
-    /* Print styles for PDF - maintain 16:9 */
-    @media print {
-      html, body {
-        width: 297mm !important;
-        height: 167mm !important;
-      }
-      
-      .reveal .slides {
-        width: 297mm !important;
-        height: 167mm !important;
-        transform: none !important;
-        left: 0 !important;
-        top: 0 !important;
-      }
-      
-      .reveal .slides section {
-        width: 297mm !important;
-        height: 167mm !important;
-        page-break-after: always;
-        margin: 0;
-        padding: 20mm;
-      }
-      
-      .controls {
-        display: none !important;
-      }
-      
-      body.plain-mode .reveal section {
-        background: white !important;
-        color: black !important;
-      }
-    }
-  </style>
-</head>
-<body>
-
-<div class="reveal">
-  <div class="slides">
-    {% for slide in slides %}
-      {% if slide.type == 'title' %}
-        <section class="title-slide">
-          <h1>{{ slide.title }}</h1>
-        </section>
-      {% elif slide.type == 'section' %}
-        <section class="section-slide" data-transition="slide">
-          <h2>{{ slide.title }}</h2>
-          <p>{{ slide.body }}</p>
-        </section>
-      {% elif slide.type == 'main' %}
-        <section class="main-slide" data-transition="zoom">
-          <h2>{{ slide.title }}</h2>
-          <div class="main-slide-content">
-            <div class="main-slide-text">
-              <p>{{ slide.body }}</p>
-            </div>
-            <div class="main-slide-image">
-              {% if slide.image_base64 %}
-                <img src="{{ slide.image_base64 }}" alt="{{ slide.image_alt }}" />
-              {% else %}
-                <div class="no-image-placeholder">
-                  No Image Available
-                </div>
-              {% endif %}
-            </div>
-          </div>
-        </section>
-      {% elif slide.type == 'thankyou' %}
-        <section class="thankyou-slide" data-transition="slide">
-          <h3>{{ slide.title }} 🙏</h3>
-          <p style="font-style: italic;">{{ slide.subtitle }}</p>
-        </section>
-      {% endif %}
-    {% endfor %}
-  </div>
-</div>
-
-<!-- Controls -->
-<div class="controls">
-  <button onclick="toggleMode()">🎨 Toggle Theme</button>
-  <button onclick="window.print()">🖨️ Print/PDF</button>
-</div>
-
-<!-- Reveal.js core JS -->
-<script src="https://cdn.jsdelivr.net/npm/reveal.js/dist/reveal.js"></script>
-
-<script>
-// Calculate scaling for 16:9 aspect ratio
-function updateScale() {
-  const windowWidth = window.innerWidth;
-  const windowHeight = window.innerHeight;
-  const slideWidth = 1920;
-  const slideHeight = 1080;
-  
-  const scaleX = windowWidth / slideWidth;
-  const scaleY = windowHeight / slideHeight;
-  const scale = Math.min(scaleX, scaleY);
-  
-  document.documentElement.style.setProperty('--reveal-scale', scale);
-}
-
-// Initialize Reveal.js with 16:9 configuration
-Reveal.initialize({
-  width: 1920,
-  height: 1080,
-  margin: 0,
-  minScale: 0.1,
-  maxScale: 3,
-  controls: true,
-  progress: true,
-  center: false,
-  hash: true,
-  transition: 'fade',
-  transitionSpeed: 'default',
-  backgroundTransition: 'fade'
-});
-
-// Update scale on window resize
-window.addEventListener('resize', updateScale);
-updateScale();
-
-// Toggle between themed and plain mode
-function toggleMode() {
-  document.body.classList.toggle('plain-mode');
-}
-
-// Print styles for PDF generation
-window.addEventListener('beforeprint', function() {
-  document.body.classList.add('plain-mode');
-});
-
-window.addEventListener('afterprint', function() {
-  document.body.classList.remove('plain-mode');
-});
-</script>
-
-</body>
-</html>"""
-
-    template = Template(template_str)
-    return template.render(topic=topic, slides=slides, theme=theme, script_id=script_id)
-
-# Add PDF generation endpoint (optional)
 @app.get("/presentation/{script_id}/pdf")
-def generate_presentation_pdf(script_id: str):
+async def generate_presentation_pdf(script_id: str):
     """
-    Generate a PDF of the presentation in 16:9 aspect ratio
+    Generate and return a PDF presentation using Decktape
+    Returns the PDF file directly for download
     """
+    import subprocess
+    import tempfile
+    from fastapi.responses import FileResponse
+    
+    # Get script data
+    script_data = get_script_from_db(script_id)
+    if not script_data:
+        raise HTTPException(status_code=404, detail="Script not found")
+    
+    # Get the HTML content from the existing endpoint logic
+    html_result = generate_presentation_html(script_id)
+    html_content = html_result["html_content"]
+    
+    # Create temporary files
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as temp_html:
+        temp_html.write(html_content)
+        temp_html_path = temp_html.name
+    
+    # Create temporary PDF file
+    temp_pdf = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
+    temp_pdf_path = temp_pdf.name
+    temp_pdf.close()
+    
     try:
-        import pdfkit
+        # Run Decktape to convert HTML to PDF
+        cmd = [
+            "decktape",
+            "reveal",
+            temp_html_path,
+            temp_pdf_path,
+        ]
         
-        # Get HTML content
-        html_result = generate_presentation_html(script_id)
-        html_content = html_result["html_content"]
+        # Execute Decktape
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         
-        # Configure PDF options for 16:9 aspect ratio
-        options = {
-            'page-size': 'A4',
-            'orientation': 'Landscape',
-            'margin-top': '0.5in',
-            'margin-right': '0.5in', 
-            'margin-bottom': '0.5in',
-            'margin-left': '0.5in',
-            'encoding': "UTF-8",
-            'no-outline': None,
-            'enable-local-file-access': None,
-            'disable-smart-shrinking': None,
-            'print-media-type': None,
-            'javascript-delay': 3000,  # Wait for JS to load
-            'no-stop-slow-scripts': None,
-            'debug-javascript': None
-        }
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"PDF generation failed: {result.stderr}"
+            )
         
-        # Generate PDF - this is the key fix
-        try:
-            pdf_content = pdfkit.from_string(html_content, False, options=options)
-            
-            # Verify we got actual PDF content
-            if not pdf_content or len(pdf_content) < 100:
-                raise Exception("PDF generation returned empty or invalid content")
-            
-            # Check if content starts with PDF signature
-            if not pdf_content.startswith(b'%PDF'):
-                raise Exception("Generated content is not a valid PDF")
-            
-        except Exception as pdf_error:
-            print(f"pdfkit error: {pdf_error}")
-            # Fallback: try with simpler options
-            simple_options = {
-                'page-size': 'A4',
-                'orientation': 'Landscape',
-                'encoding': "UTF-8"
-            }
-            pdf_content = pdfkit.from_string(html_content, False, options=simple_options)
+        # Check if PDF was created
+        if not os.path.exists(temp_pdf_path) or os.path.getsize(temp_pdf_path) == 0:
+            raise HTTPException(status_code=500, detail="PDF file was not created")
         
-        from fastapi.responses import Response
-        return Response(
-            content=pdf_content,
+        # Return the PDF file
+        filename = f"{script_id}_presentation.pdf"
+        
+        return FileResponse(
+            path=temp_pdf_path,
             media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"attachment; filename={script_id}_presentation_16x9.pdf",
-                "Content-Type": "application/pdf"
-            }
+            filename=filename,
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
         
-    except ImportError:
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="PDF generation timed out")
+    except FileNotFoundError:
         raise HTTPException(
             status_code=500, 
-            detail="PDF generation requires 'pdfkit' package. Install with: pip install pdfkit"
+            detail="Decktape not found. Please install it with: npm install -g decktape"
         )
     except Exception as e:
-        print(f"PDF generation error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error generating PDF: {str(e)}")
+    finally:
+        # Clean up temporary HTML file
+        try:
+            os.unlink(temp_html_path)
+        except:
+            pass
+        # Note: temp_pdf_path will be cleaned up by FastAPI after response is sent
+
