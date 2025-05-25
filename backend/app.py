@@ -1230,6 +1230,7 @@ async def generate_audio(request: AudioRequest):
     """
     Generate audio files for a script using Google Text-to-Speech
     Creates segment summaries and slide narrations as separate audio files
+    Also generates audio for title slide and thank you slide
     """
     script_id = request.script_id
     speaker = request.speaker.lower()
@@ -1254,15 +1255,34 @@ async def generate_audio(request: AudioRequest):
     # Prepare tasks for parallel execution
     tasks = []
     audio_files = {}
+    audio_counter = 1  # Sequential counter for audio files
+    
+    # Task 1: Title slide audio
+    title_text = f"Welcome to our presentation on {script_data['topic']}"
+    title_filename = f"audio_{audio_counter}.mp3"
+    title_path = os.path.join(audio_dir, title_filename)
+    
+    task = synthesize_text_async(title_text, speaker, title_path)
+    tasks.append((task, {
+        "audio_key": "title_slide",
+        "audio_type": "title",
+        "segment_idx": 0,
+        "slide_idx": 0,
+        "content": title_text,
+        "audio_path": title_path,
+        "speaker": speaker,
+        "audio_number": audio_counter
+    }))
+    audio_counter += 1
     
     # Generate audio for each segment summary and slide narration
     for segment_idx, segment in enumerate(segments_data, 1):
         segment_title = segment.get('segment_title', f'Segment {segment_idx}')
         segment_summary = segment.get('summary', '')
         
-        # Task 1: Segment summary audio
+        # Segment summary audio
         if segment_summary.strip():
-            summary_filename = f"segment_{segment_idx}_summary_{speaker}.mp3"
+            summary_filename = f"audio_{audio_counter}.mp3"
             summary_path = os.path.join(audio_dir, summary_filename)
             
             task = synthesize_text_async(segment_summary, speaker, summary_path)
@@ -1273,10 +1293,12 @@ async def generate_audio(request: AudioRequest):
                 "slide_idx": None,
                 "content": segment_summary,
                 "audio_path": summary_path,
-                "speaker": speaker
+                "speaker": speaker,
+                "audio_number": audio_counter
             }))
+            audio_counter += 1
         
-        # Task 2-5: Slide narration audio for each slide in the segment
+        # Slide narration audio for each slide in the segment
         for slide_idx, slide in enumerate(segment.get('slides', []), 1):
             slide_key = f"segment_{segment_idx}_slide_{slide_idx}"
             
@@ -1288,7 +1310,7 @@ async def generate_audio(request: AudioRequest):
                 slide_narration = slide['narration']
             
             if slide_narration.strip():
-                narration_filename = f"segment_{segment_idx}_slide_{slide_idx}_{speaker}.mp3"
+                narration_filename = f"audio_{audio_counter}.mp3"
                 narration_path = os.path.join(audio_dir, narration_filename)
                 
                 task = synthesize_text_async(slide_narration, speaker, narration_path)
@@ -1299,8 +1321,28 @@ async def generate_audio(request: AudioRequest):
                     "slide_idx": slide_idx,
                     "content": slide_narration,
                     "audio_path": narration_path,
-                    "speaker": speaker
+                    "speaker": speaker,
+                    "audio_number": audio_counter
                 }))
+                audio_counter += 1
+    
+    # Final task: Thank you slide audio
+    thank_you_text = "Thank you for your attention. This presentation was made using Sutradhaar."
+    thank_you_filename = f"audio_{audio_counter}.mp3"
+    thank_you_path = os.path.join(audio_dir, thank_you_filename)
+    
+    task = synthesize_text_async(thank_you_text, speaker, thank_you_path)
+    tasks.append((task, {
+        "audio_key": "thank_you_slide",
+        "audio_type": "thank_you",
+        "segment_idx": 99,  # Use 99 to indicate it's the last slide
+        "slide_idx": 99,
+        "content": thank_you_text,
+        "audio_path": thank_you_path,
+        "speaker": speaker,
+        "audio_number": audio_counter
+    }))
+    audio_counter += 1
     
     if not tasks:
         raise HTTPException(status_code=400, detail="No text content found to generate audio")
@@ -1348,6 +1390,8 @@ async def generate_audio(request: AudioRequest):
                 "slide_idx": task_info["slide_idx"],
                 "content_preview": task_info["content"][:100] + "..." if len(task_info["content"]) > 100 else task_info["content"],
                 "audio_path": task_info["audio_path"],
+                "audio_number": task_info["audio_number"],
+                "filename": os.path.basename(task_info["audio_path"]),
                 "file_size": os.path.getsize(task_info["audio_path"]) if os.path.exists(task_info["audio_path"]) else 0
             }
         else:  # TTS failed
