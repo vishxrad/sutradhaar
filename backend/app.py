@@ -24,6 +24,8 @@ import base64
 from pathlib import Path
 from presentation_templates import generate_html_template, get_theme_colors
 from fastapi.middleware.cors import CORSMiddleware
+from google.cloud import texttospeech  # Add this import
+from pdf2image import convert_from_path  # Add this import at the top
 
 
 load_dotenv()
@@ -41,6 +43,8 @@ app.add_middleware(
 # Add static file serving for images
 app.mount("/images", StaticFiles(directory="generated_images"), name="images")
 app.mount("/presentations", StaticFiles(directory="generated_presentations"), name="presentations")
+app.mount("/audio", StaticFiles(directory="generated_audio"), name="audio")
+app.mount("/pdf-images", StaticFiles(directory="generated_pdf_images"), name="pdf-images")
 
 # Database configuration
 DATABASE_PATH = "sutradhaar.db"
@@ -60,6 +64,10 @@ class PresentationRequest(BaseModel):
 class HTMLGenerationRequest(BaseModel):
     script_id: str
     template: str = "modern"
+
+class AudioRequest(BaseModel):
+    script_id: str
+    speaker: str = "female"  # "male" or "female"
 
 # Initialize OpenAI client
 if "OPENAI_API_KEY" not in os.environ:
@@ -108,7 +116,7 @@ def init_database():
             )
         ''')
         
-        # Create presentations table - NEW
+        # Create presentations table - Updated with pdf_images_path column
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS presentations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,10 +125,33 @@ def init_database():
                 filename TEXT NOT NULL,
                 created_at REAL NOT NULL,
                 file_size INTEGER,
+                pdf_images_path TEXT,
                 FOREIGN KEY (script_id) REFERENCES scripts (script_id),
                 UNIQUE(script_id)
             )
         ''')
+        
+        # Check and migrate presentations table if needed
+        try:
+            cursor.execute("PRAGMA table_info(presentations)")
+            columns = [column[1] for column in cursor.fetchall()]
+            print(f"Presentations table columns: {columns}")
+            
+            # Add missing columns if they don't exist
+            if 'filename' not in columns:
+                print("Adding filename column to presentations table...")
+                cursor.execute('ALTER TABLE presentations ADD COLUMN filename TEXT')
+                
+            if 'file_size' not in columns:
+                print("Adding file_size column to presentations table...")
+                cursor.execute('ALTER TABLE presentations ADD COLUMN file_size INTEGER')
+            
+            if 'pdf_images_path' not in columns:
+                print("Adding pdf_images_path column to presentations table...")
+                cursor.execute('ALTER TABLE presentations ADD COLUMN pdf_images_path TEXT')
+                
+        except Exception as e:
+            print(f"Presentations table migration error: {e}")
         
         # Create images table - Updated schema with additional fields
         cursor.execute('''
@@ -144,7 +175,7 @@ def init_database():
             )
         ''')
         
-        # Migrate existing data if needed
+        # Migrate existing images data if needed
         try:
             cursor.execute("PRAGMA table_info(images)")
             columns = [column[1] for column in cursor.fetchall()]
@@ -209,8 +240,25 @@ def init_database():
         except Exception as e:
             print(f"Migration error (this is normal for new databases): {e}")
         
+        # Create audio table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS audio (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                script_id TEXT NOT NULL,
+                audio_type TEXT NOT NULL,
+                segment_idx INTEGER,
+                slide_idx INTEGER,
+                content TEXT NOT NULL,
+                audio_path TEXT NOT NULL,
+                speaker TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                FOREIGN KEY (script_id) REFERENCES scripts (script_id),
+                UNIQUE(script_id, audio_type, segment_idx, slide_idx)
+            )
+        ''')
+        
         conn.commit()
-        print("Database initialized successfully")
+        print("Database initialized successfully with all tables and columns")
 
 def save_script_to_db(script_id: str, topic: str, raw_script: str, parsed_script: List[dict]) -> bool:
     """Save script data to database"""
@@ -370,6 +418,88 @@ def get_images_from_db(script_id: str) -> dict:
         print(f"Error retrieving images from database: {e}")
         return {}
 
+def save_audio_to_db(script_id: str, audio_files: dict) -> bool:
+    """Save audio file paths to database"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            current_time = time.time()
+            
+            # Create audio table if it doesn't exist
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS audio (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    script_id TEXT NOT NULL,
+                    audio_type TEXT NOT NULL,
+                    segment_idx INTEGER,
+                    slide_idx INTEGER,
+                    content TEXT NOT NULL,
+                    audio_path TEXT NOT NULL,
+                    speaker TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    FOREIGN KEY (script_id) REFERENCES scripts (script_id),
+                    UNIQUE(script_id, audio_type, segment_idx, slide_idx)
+                )
+            ''')
+            
+            # Clear existing audio for this script
+            cursor.execute('DELETE FROM audio WHERE script_id = ?', (script_id,))
+            
+            # Insert new audio records
+            for audio_key, audio_info in audio_files.items():
+                cursor.execute('''
+                    INSERT INTO audio 
+                    (script_id, audio_type, segment_idx, slide_idx, content, audio_path, speaker, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    script_id,
+                    audio_info.get("audio_type"),
+                    audio_info.get("segment_idx"),
+                    audio_info.get("slide_idx"),
+                    audio_info.get("content"),
+                    audio_info.get("audio_path"),
+                    audio_info.get("speaker"),
+                    current_time
+                ))
+            
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"Error saving audio to database: {e}")
+        return False
+
+def get_audio_from_db(script_id: str) -> dict:
+    """Retrieve audio data from database"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT audio_type, segment_idx, slide_idx, content, audio_path, speaker, created_at
+                FROM audio WHERE script_id = ?
+                ORDER BY segment_idx, slide_idx
+            ''', (script_id,))
+            
+            rows = cursor.fetchall()
+            audio_files = {}
+            
+            for row in rows:
+                audio_key = f"{row['audio_type']}_seg{row['segment_idx']}_slide{row['slide_idx']}" if row['slide_idx'] else f"{row['audio_type']}_seg{row['segment_idx']}"
+                audio_files[audio_key] = {
+                    "audio_type": row["audio_type"],
+                    "segment_idx": row["segment_idx"],
+                    "slide_idx": row["slide_idx"],
+                    "content": row["content"],
+                    "audio_path": row["audio_path"],
+                    "speaker": row["speaker"],
+                    "created_at": row["created_at"]
+                }
+            
+            return audio_files
+    except Exception as e:
+        print(f"Error retrieving audio from database: {e}")
+        return {}
+
 # Initialize database on startup
 init_database()
 
@@ -397,6 +527,7 @@ def parse_script_data(script_text):
 
     for segment_match in segment_pattern.finditer(script_text):
         title = segment_match.group("title").strip()
+        title = title.strip('*').strip()  # Remove leading/trailing asterisks and whitespace
         
         summary_text = segment_match.group("summary")
         current_summary = summary_text.strip() if summary_text else ""
@@ -970,12 +1101,409 @@ def generate_presentation_html(script_id: str):
         "filename": f"{script_id}_presentation.html"
     }
 
+def save_presentation_to_db(script_id: str, pdf_path: str, filename: str, file_size: int) -> bool:
+    """Save presentation PDF path to database"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            current_time = time.time()
+            
+            cursor.execute('''
+                INSERT OR REPLACE INTO presentations 
+                (script_id, pdf_path, filename, created_at, file_size)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (
+                script_id,
+                pdf_path,
+                filename,
+                current_time,
+                file_size
+            ))
+            
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"Error saving presentation to database: {e}")
+        return False
+
+def get_presentation_from_db(script_id: str) -> Optional[dict]:
+    """Retrieve presentation data from database"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT script_id, pdf_path, filename, created_at, file_size
+                FROM presentations WHERE script_id = ?
+            ''', (script_id,))
+            
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "script_id": row["script_id"],
+                    "pdf_path": row["pdf_path"],
+                    "filename": row["filename"],
+                    "created_at": row["created_at"],
+                    "file_size": row["file_size"]
+                }
+            return None
+    except Exception as e:
+        print(f"Error retrieving presentation from database: {e}")
+        return None
+
+async def synthesize_text_async(text: str, speaker: str, output_path: str) -> bool:
+    """Async wrapper for Google Text-to-Speech synthesis"""
+    try:
+        # Run the synchronous TTS in a thread pool
+        loop = asyncio.get_event_loop()
+        
+        with ThreadPoolExecutor() as executor:
+            success = await loop.run_in_executor(
+                executor,
+                synthesize_text_sync,
+                text,
+                speaker,
+                output_path
+            )
+            return success
+    except Exception as e:
+        print(f"Error in async TTS for '{output_path}': {e}")
+        return False
+
+def synthesize_text_sync(text: str, speaker: str, output_path: str) -> bool:
+    """Synchronous Google Text-to-Speech synthesis"""
+    try:
+        client = texttospeech.TextToSpeechClient()
+        
+        # Clean and prepare text for SSML
+        cleaned_text = text.replace('\n', ' ').replace('\r', ' ').strip()
+        if not cleaned_text:
+            print(f"Empty text provided for {output_path}")
+            return False
+        
+        # Wrap the text in SSML with slower speaking rate
+        ssml_text = f'<speak><prosody rate="100%">{cleaned_text}</prosody></speak>'
+        input_text = texttospeech.SynthesisInput(ssml=ssml_text)
+        
+        # Select voice based on speaker preference
+        if speaker.lower() == "male":
+            voice = texttospeech.VoiceSelectionParams(
+                language_code="en-IN",
+                name="en-IN-Wavenet-F",  # Male voice
+            )
+        else:  # female (default)
+            voice = texttospeech.VoiceSelectionParams(
+                language_code="en-IN",
+                name="en-IN-Wavenet-D",  # Female voice
+            )
+        
+        # Configure audio output
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3
+        )
+        
+        # Make the TTS request
+        response = client.synthesize_speech(
+            request={
+                "input": input_text,
+                "voice": voice,
+                "audio_config": audio_config
+            }
+        )
+        
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        # Write the audio content to file
+        with open(output_path, "wb") as out:
+            out.write(response.audio_content)
+        
+        print(f"Audio content written to '{output_path}'")
+        return True
+        
+    except Exception as e:
+        print(f"Error synthesizing text for '{output_path}': {e}")
+        return False
+
+@app.post("/generate-audio")
+async def generate_audio(request: AudioRequest):
+    """
+    Generate audio files for a script using Google Text-to-Speech
+    Creates segment summaries and slide narrations as separate audio files
+    """
+    script_id = request.script_id
+    speaker = request.speaker.lower()
+    
+    if speaker not in ["male", "female"]:
+        raise HTTPException(status_code=400, detail="Speaker must be 'male' or 'female'")
+    
+    # Get script data
+    script_data = get_script_from_db(script_id)
+    if not script_data:
+        raise HTTPException(status_code=404, detail="Script not found. Generate a script first.")
+    
+    # Get images data to access slide narrations
+    images_data = get_images_from_db(script_id)
+    
+    segments_data = script_data["parsed_script"]
+    
+    # Create output directory
+    audio_dir = f"generated_audio/{script_id}"
+    os.makedirs(audio_dir, exist_ok=True)
+    
+    # Prepare tasks for parallel execution
+    tasks = []
+    audio_files = {}
+    
+    # Generate audio for each segment summary and slide narration
+    for segment_idx, segment in enumerate(segments_data, 1):
+        segment_title = segment.get('segment_title', f'Segment {segment_idx}')
+        segment_summary = segment.get('summary', '')
+        
+        # Task 1: Segment summary audio
+        if segment_summary.strip():
+            summary_filename = f"segment_{segment_idx}_summary_{speaker}.mp3"
+            summary_path = os.path.join(audio_dir, summary_filename)
+            
+            task = synthesize_text_async(segment_summary, speaker, summary_path)
+            tasks.append((task, {
+                "audio_key": f"summary_seg{segment_idx}",
+                "audio_type": "summary",
+                "segment_idx": segment_idx,
+                "slide_idx": None,
+                "content": segment_summary,
+                "audio_path": summary_path,
+                "speaker": speaker
+            }))
+        
+        # Task 2-5: Slide narration audio for each slide in the segment
+        for slide_idx, slide in enumerate(segment.get('slides', []), 1):
+            slide_key = f"segment_{segment_idx}_slide_{slide_idx}"
+            
+            # Get slide narration from images_data or fallback to slide data
+            slide_narration = ""
+            if slide_key in images_data and images_data[slide_key].get('slide_narration'):
+                slide_narration = images_data[slide_key]['slide_narration']
+            elif slide.get('narration'):
+                slide_narration = slide['narration']
+            
+            if slide_narration.strip():
+                narration_filename = f"segment_{segment_idx}_slide_{slide_idx}_{speaker}.mp3"
+                narration_path = os.path.join(audio_dir, narration_filename)
+                
+                task = synthesize_text_async(slide_narration, speaker, narration_path)
+                tasks.append((task, {
+                    "audio_key": f"narration_seg{segment_idx}_slide{slide_idx}",
+                    "audio_type": "narration",
+                    "segment_idx": segment_idx,
+                    "slide_idx": slide_idx,
+                    "content": slide_narration,
+                    "audio_path": narration_path,
+                    "speaker": speaker
+                }))
+    
+    if not tasks:
+        raise HTTPException(status_code=400, detail="No text content found to generate audio")
+    
+    print(f"Starting parallel generation of {len(tasks)} audio files for script {script_id}...")
+    start_time = asyncio.get_event_loop().time()
+    
+    # Execute all TTS tasks in parallel
+    task_list = [task[0] for task in tasks]
+    results = await asyncio.gather(*task_list, return_exceptions=True)
+    
+    end_time = asyncio.get_event_loop().time()
+    print(f"Parallel audio generation completed in {end_time - start_time:.2f} seconds")
+    
+    # Process results
+    audio_results = {
+        "script_id": script_id,
+        "topic": script_data["topic"],
+        "speaker": speaker,
+        "audio_files": {},
+        "stats": {
+            "total_requested": len(tasks),
+            "successful": 0,
+            "failed": 0,
+            "errors": [],
+            "generation_time_seconds": round(end_time - start_time, 2)
+        }
+    }
+    
+    for i, result in enumerate(results):
+        task_info = tasks[i][1]
+        audio_key = task_info["audio_key"]
+        
+        if isinstance(result, Exception):
+            audio_results["stats"]["failed"] += 1
+            audio_results["stats"]["errors"].append(f"{audio_key}: {str(result)}")
+            continue
+        
+        if result:  # TTS was successful
+            audio_results["stats"]["successful"] += 1
+            audio_files[audio_key] = task_info
+            audio_results["audio_files"][audio_key] = {
+                "audio_type": task_info["audio_type"],
+                "segment_idx": task_info["segment_idx"],
+                "slide_idx": task_info["slide_idx"],
+                "content_preview": task_info["content"][:100] + "..." if len(task_info["content"]) > 100 else task_info["content"],
+                "audio_path": task_info["audio_path"],
+                "file_size": os.path.getsize(task_info["audio_path"]) if os.path.exists(task_info["audio_path"]) else 0
+            }
+        else:  # TTS failed
+            audio_results["stats"]["failed"] += 1
+            audio_results["stats"]["errors"].append(f"{audio_key}: TTS synthesis failed")
+    
+    # Save audio file info to database
+    if audio_files:
+        if save_audio_to_db(script_id, audio_files):
+            print(f"Successfully saved {len(audio_files)} audio file records to database")
+        else:
+            audio_results["warning"] = "Audio generated but failed to save to database"
+    
+    return audio_results
+
+@app.get("/script/{script_id}/audio")
+def get_script_audio(script_id: str):
+    """
+    Retrieve audio files for a specific script from database
+    """
+    # Check if script exists
+    script_data = get_script_from_db(script_id)
+    if not script_data:
+        raise HTTPException(status_code=404, detail="Script not found")
+    
+    # Get audio files from database
+    audio_files = get_audio_from_db(script_id)
+    
+    return {
+        "script_id": script_id,
+        "topic": script_data["topic"],
+        "audio_files": audio_files
+    }
+
+def save_pdf_images_to_db(script_id: str, images_folder: str) -> bool:
+    """Save PDF images folder path to database"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Add pdf_images_path column if it doesn't exist
+            try:
+                cursor.execute('ALTER TABLE presentations ADD COLUMN pdf_images_path TEXT')
+            except sqlite3.OperationalError:
+                # Column already exists
+                pass
+            
+            # Update the presentation record with images folder path
+            cursor.execute('''
+                UPDATE presentations 
+                SET pdf_images_path = ?
+                WHERE script_id = ?
+            ''', (images_folder, script_id))
+            
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"Error saving PDF images path to database: {e}")
+        return False
+
+def convert_pdf_to_images(script_id: str, pdf_path: str) -> dict:
+    """
+    Convert PDF to individual slide images using pdf2image
+    Returns dictionary with conversion results and image paths
+    """
+    try:
+        # Create images directory structure
+        images_base_dir = "generated_pdf_images"
+        script_images_dir = os.path.join(images_base_dir, script_id)
+        os.makedirs(script_images_dir, exist_ok=True)
+        
+        print(f"Converting PDF to images: {pdf_path}")
+        print(f"Images will be saved to: {script_images_dir}")
+        
+        # Convert PDF to images
+        # DPI controls image quality (150 is good balance of quality/file size)
+        images = convert_from_path(
+            pdf_path,
+            dpi=150,
+            # Remove output_folder to prevent automatic saving
+            fmt='jpeg'
+            # Remove jpegopt since we'll control quality in image.save()
+        )
+        
+        # Save images with consistent naming
+        image_paths = []
+        conversion_results = {
+            "script_id": script_id,
+            "pdf_path": pdf_path,
+            "images_folder": script_images_dir,
+            "total_slides": len(images),
+            "image_paths": [],
+            "file_sizes": [],
+            "errors": []
+        }
+        
+        for i, image in enumerate(images, 1):
+            # Create filename: slide_001.jpg, slide_002.jpg, etc.
+            image_filename = f"slide_{i:03d}.jpg"
+            image_path = os.path.join(script_images_dir, image_filename)
+            
+            try:
+                # Save the image
+                image.save(image_path, 'JPEG', quality=85, optimize=True)
+                
+                # Get file size
+                file_size = os.path.getsize(image_path)
+                
+                conversion_results["image_paths"].append(image_path)
+                conversion_results["file_sizes"].append(file_size)
+                
+                print(f"Saved slide {i}: {image_path} ({file_size} bytes)")
+                
+            except Exception as e:
+                error_msg = f"Failed to save slide {i}: {str(e)}"
+                conversion_results["errors"].append(error_msg)
+                print(f"Error: {error_msg}")
+        
+        # Calculate total size of all images
+        total_size = sum(conversion_results["file_sizes"])
+        conversion_results["total_size_bytes"] = total_size
+        conversion_results["total_size_mb"] = round(total_size / (1024 * 1024), 2)
+        
+        # Save images folder path to database
+        if save_pdf_images_to_db(script_id, script_images_dir):
+            conversion_results["database_saved"] = True
+            print(f"PDF images path saved to database: {script_images_dir}")
+        else:
+            conversion_results["database_saved"] = False
+            conversion_results["errors"].append("Failed to save images path to database")
+        
+        print(f"PDF conversion completed: {len(images)} slides, {conversion_results['total_size_mb']} MB total")
+        return conversion_results
+        
+    except Exception as e:
+        error_msg = f"Error converting PDF to images: {str(e)}"
+        print(error_msg)
+        return {
+            "script_id": script_id,
+            "pdf_path": pdf_path,
+            "images_folder": None,
+            "total_slides": 0,
+            "image_paths": [],
+            "file_sizes": [],
+            "errors": [error_msg],
+            "total_size_bytes": 0,
+            "total_size_mb": 0,
+            "database_saved": False
+        }
+
+# Update the PDF generation endpoint to include image conversion
 @app.get("/presentation/{script_id}/pdf")
 async def generate_presentation_pdf(script_id: str):
     """
     Generate and return a PDF presentation using Decktape
-    Saves PDF to generated_presentations folder and stores path in database
-    Returns the PDF file directly for download
+    Also converts PDF to individual slide images and stores them
     """
     import subprocess
     import tempfile
@@ -989,6 +1517,15 @@ async def generate_presentation_pdf(script_id: str):
     # Check if PDF already exists
     existing_presentation = get_presentation_from_db(script_id)
     if existing_presentation and os.path.exists(existing_presentation["pdf_path"]):
+        # Check if images have already been generated
+        if not existing_presentation.get("pdf_images_path") or not os.path.exists(existing_presentation.get("pdf_images_path", "")):
+            # Generate images from existing PDF
+            print("PDF exists but images missing. Converting PDF to images...")
+            conversion_result = convert_pdf_to_images(script_id, existing_presentation["pdf_path"])
+            
+            if conversion_result["errors"]:
+                print(f"Warning: PDF to image conversion had errors: {conversion_result['errors']}")
+        
         # Return existing PDF
         return FileResponse(
             path=existing_presentation["pdf_path"],
@@ -1045,6 +1582,15 @@ async def generate_presentation_pdf(script_id: str):
         
         print(f"PDF saved successfully: {pdf_path} ({file_size} bytes)")
         
+        # Convert PDF to images
+        print("Converting PDF to individual slide images...")
+        conversion_result = convert_pdf_to_images(script_id, pdf_path)
+        
+        if conversion_result["errors"]:
+            print(f"Warning: PDF to image conversion had errors: {conversion_result['errors']}")
+        else:
+            print(f"Successfully converted PDF to {conversion_result['total_slides']} images ({conversion_result['total_size_mb']} MB)")
+        
         # Return the PDF file
         return FileResponse(
             path=pdf_path,
@@ -1081,53 +1627,47 @@ async def generate_presentation_pdf(script_id: str):
         except:
             pass
 
-def save_presentation_to_db(script_id: str, pdf_path: str, filename: str, file_size: int) -> bool:
-    """Save presentation PDF path to database"""
+# Add a new endpoint to get PDF images info
+@app.get("/presentation/{script_id}/images")
+def get_presentation_images(script_id: str):
+    """
+    Get information about the PDF slide images for a presentation
+    """
+    # Get presentation data
+    presentation_data = get_presentation_from_db(script_id)
+    if not presentation_data:
+        raise HTTPException(status_code=404, detail="Presentation not found")
+    
+    images_folder = presentation_data.get("pdf_images_path")
+    if not images_folder or not os.path.exists(images_folder):
+        raise HTTPException(status_code=404, detail="PDF images not found. Generate PDF first.")
+    
+    # Get list of image files
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            current_time = time.time()
-            
-            cursor.execute('''
-                INSERT OR REPLACE INTO presentations 
-                (script_id, pdf_path, filename, created_at, file_size)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (
-                script_id,
-                pdf_path,
-                filename,
-                current_time,
-                file_size
-            ))
-            
-            conn.commit()
-            return True
+        image_files = []
+        for filename in sorted(os.listdir(images_folder)):
+            if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                file_path = os.path.join(images_folder, filename)
+                file_size = os.path.getsize(file_path)
+                
+                image_files.append({
+                    "filename": filename,
+                    "file_path": file_path,
+                    "file_size": file_size,
+                    "slide_number": int(filename.split('_')[1].split('.')[0]) if '_' in filename else 0
+                })
+        
+        total_size = sum(img["file_size"] for img in image_files)
+        
+        return {
+            "script_id": script_id,
+            "images_folder": images_folder,
+            "total_images": len(image_files),
+            "total_size_bytes": total_size,
+            "total_size_mb": round(total_size / (1024 * 1024), 2),
+            "images": image_files
+        }
+        
     except Exception as e:
-        print(f"Error saving presentation to database: {e}")
-        return False
-
-def get_presentation_from_db(script_id: str) -> Optional[dict]:
-    """Retrieve presentation data from database"""
-    try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                SELECT script_id, pdf_path, filename, created_at, file_size
-                FROM presentations WHERE script_id = ?
-            ''', (script_id,))
-            
-            row = cursor.fetchone()
-            if row:
-                return {
-                    "script_id": row["script_id"],
-                    "pdf_path": row["pdf_path"],
-                    "filename": row["filename"],
-                    "created_at": row["created_at"],
-                    "file_size": row["file_size"]
-                }
-            return None
-    except Exception as e:
-        print(f"Error retrieving presentation from database: {e}")
-        return None
+        raise HTTPException(status_code=500, detail=f"Error reading images folder: {str(e)}")
 
