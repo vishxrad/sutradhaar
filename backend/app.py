@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, Field
+from typing import Optional, Dict, Any
 import openai
 import os
 import re
@@ -26,6 +26,12 @@ from presentation_templates import generate_html_template, get_theme_colors
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import texttospeech  # Add this import
 from pdf2image import convert_from_path  # Add this import at the top
+import subprocess
+import tempfile
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import shutil
+import glob
 
 
 load_dotenv()
@@ -45,6 +51,7 @@ app.mount("/images", StaticFiles(directory="generated_images"), name="images")
 app.mount("/presentations", StaticFiles(directory="generated_presentations"), name="presentations")
 app.mount("/audio", StaticFiles(directory="generated_audio"), name="audio")
 app.mount("/pdf-images", StaticFiles(directory="generated_pdf_images"), name="pdf-images")
+app.mount("/chunks", StaticFiles(directory="generated_chunks"), name="chunks")
 
 # Database configuration
 DATABASE_PATH = "sutradhaar.db"
@@ -68,6 +75,11 @@ class HTMLGenerationRequest(BaseModel):
 class AudioRequest(BaseModel):
     script_id: str
     speaker: str = "female"  # "male" or "female"
+
+class VideoChunkRequest(BaseModel):
+    script_id: str
+
+
 
 # Initialize OpenAI client
 if "OPENAI_API_KEY" not in os.environ:
@@ -1849,3 +1861,711 @@ def get_presentation_slide_image(script_id: str, slide_number: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving slide image: {str(e)}")
 
+
+# Helper function to check for ffmpeg/ffprobe
+def _check_ffmpeg_tools():
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError("ffmpeg not found in PATH. Please install ffmpeg.")
+    if shutil.which("ffprobe") is None:
+        raise RuntimeError("ffprobe not found in PATH. Please install ffmpeg (which includes ffprobe).")
+
+# Call this at startup or before first use
+try:
+    _check_ffmpeg_tools()
+except RuntimeError as e:
+    print(f"Warning: {e}")
+
+
+async def get_audio_duration(audio_path: str) -> Optional[float]:
+    """
+    Get the duration of an audio file using ffprobe.
+    Returns duration in seconds, or None if an error occurs.
+    """
+    if not os.path.exists(audio_path):
+        print(f"Audio file not found: {audio_path}")
+        return None
+
+    cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        audio_path
+    ]
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode == 0:
+            try:
+                return float(stdout.decode().strip())
+            except ValueError:
+                print(f"Could not parse duration from ffprobe output: {stdout.decode()}")
+                return None
+        else:
+            print(f"ffprobe error for {audio_path}: {stderr.decode()}")
+            return None
+    except FileNotFoundError:
+        print("Error: ffprobe command not found. Please ensure ffmpeg (which includes ffprobe) is installed and in PATH.")
+        # Raise a more specific error or handle globally
+        raise HTTPException(status_code=500, detail="ffprobe not found. Cannot process audio.")
+    except Exception as e:
+        print(f"Error getting audio duration for {audio_path}: {e}")
+        return None
+
+async def create_single_video_chunk(
+    chunk_order: int,
+    image_path: str,
+    audio_path: str,
+    audio_duration: float,
+    output_dir: str,
+    script_id: str # Added for comprehensive return dict
+) -> Dict[str, Any]:
+    """
+    Creates a single video chunk from an image and an audio file.
+    Includes 1s buffer at start and end.
+    Corrects for odd video dimensions.
+    """
+    if not os.path.exists(image_path):
+        raise FileNotFoundError(f"Image file not found: {image_path}")
+    if not os.path.exists(audio_path):
+        raise FileNotFoundError(f"Audio file not found: {audio_path}")
+
+    os.makedirs(output_dir, exist_ok=True)
+    
+    output_filename = f"chunk_{chunk_order:03d}.mp4"
+    output_path = os.path.join(output_dir, output_filename)
+
+    total_video_duration = audio_duration + 2.0  # 1s start buffer + audio + 1s end buffer
+
+    # Check if ffprobe and ffmpeg are available
+    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        raise RuntimeError("ffmpeg or ffprobe not found in PATH.")
+
+    cmd = [
+        "ffmpeg",
+        "-loop", "1",            # Loop the input image
+        "-framerate", "25",      # Input image framerate (can be adjusted)
+        "-i", image_path,        # Input image path
+        "-i", audio_path,        # Input audio path
+        # Video filters: set framerate, scale to ensure even dimensions (height divisible by 2), ensure yuv420p for compatibility
+        "-vf", "fps=25,scale=iw:-2,format=yuv420p", # <--- THE FIX IS HERE
+        # Audio filters: delay audio by 1000ms (1s), pad end with silence to match video duration
+        "-af", f"adelay=1000ms:all=1,apad", # Added 'ms:all=1' to adelay for clarity, though 1000 defaults to ms.
+        "-map", "0:v",           # Map video from the first input (image)
+        "-map", "1:a",           # Map audio from the second input (audio), now filtered
+        "-c:v", "libx264",       # Video codec
+        "-preset", "medium",     # Encoding speed/quality trade-off
+        "-tune", "stillimage",   # Optimize for still images
+        "-crf", "23",            # Constant Rate Factor (quality, lower is better, 18-28 is common)
+        "-c:a", "aac",           # Audio codec
+        "-b:a", "128k",          # Audio bitrate
+        "-pix_fmt", "yuv420p",   # Output pixel format (important for compatibility)
+        "-t", str(total_video_duration), # Total duration of the output video
+        "-y",                    # Overwrite output file if it exists
+        output_path
+    ]
+
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    stdout, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        error_message = (f"FFmpeg error for chunk {chunk_order} "
+                         f"(Image: {os.path.basename(image_path)}, Audio: {os.path.basename(audio_path)}):\n"
+                         f"Command: {' '.join(cmd)}\n" # Log the command for easier debugging
+                         f"Stderr: {stderr.decode()}")
+        # Attempt to delete partially created file
+        if os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except Exception as e_del:
+                error_message += f" | Also failed to delete partial file {output_path}: {e_del}"
+        raise Exception(error_message)
+
+    return {
+        "script_id": script_id,
+        "chunk_order": chunk_order,
+        "video_path": output_path,
+        "image_source": image_path,
+        "audio_source": audio_path,
+        "original_audio_duration": audio_duration,
+        "total_video_duration": total_video_duration,
+        "filename": output_filename
+    }
+
+
+@app.post("/generate-video-chunks", summary="Generate Individual Video Chunks")
+async def generate_video_chunks_endpoint(request: VideoChunkRequest):
+    """
+    Generates individual video chunks for a given script_id.
+    Each chunk combines one presentation slide (image) with its corresponding audio narration.
+    A 1-second silent buffer is added at the beginning and end of each video chunk.
+    """
+    script_id = request.script_id
+    
+    # Ensure ffmpeg and ffprobe are available (can be done once at app startup too)
+    try:
+        _check_ffmpeg_tools()
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # 1. Retrieve Data
+    script_data = get_script_from_db(script_id)
+    if not script_data:
+        raise HTTPException(status_code=404, detail=f"Script with id '{script_id}' not found.")
+
+    pdf_images = get_pdf_images_from_db(script_id)
+    if not pdf_images:
+        raise HTTPException(status_code=404, detail=f"No PDF slide images found for script_id '{script_id}'. Generate PDF first.")
+
+    audio_map = get_audio_from_db(script_id)
+    if not audio_map:
+        raise HTTPException(status_code=404, detail=f"No audio files found for script_id '{script_id}'. Generate audio first.")
+    
+    # The audio files from get_audio_from_db are sorted by (segment_idx, slide_idx)
+    # which should match the presentation flow.
+    ordered_audio_files = list(audio_map.values())
+
+    # Validate counts (expecting 27 slides and 27 audio files for a standard presentation)
+    # This check can be adjusted if the number of slides/audio can vary.
+    if len(pdf_images) != len(ordered_audio_files):
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Mismatch in number of PDF images ({len(pdf_images)}) and audio files ({len(ordered_audio_files)}). "
+                "Expected them to be equal."
+            )
+        )
+    if not pdf_images: # Handles case where both are 0 after the above check
+        raise HTTPException(status_code=400, detail="No images or audio files to process.")
+
+
+    # 2. Prepare for generation
+    output_base_dir = "generated_chunks"
+    script_output_dir = os.path.join(output_base_dir, script_id)
+    os.makedirs(script_output_dir, exist_ok=True)
+
+    # 3. Get all audio durations concurrently
+    duration_tasks = []
+    for i, audio_file_info in enumerate(ordered_audio_files):
+        audio_path = audio_file_info.get("audio_path")
+        if not audio_path or not os.path.exists(audio_path):
+            # Log or handle missing audio path more gracefully if necessary
+            print(f"Warning: Audio path missing or file does not exist for audio entry {i}. Skipping duration check.")
+            duration_tasks.append(asyncio.sleep(0, result=None)) # Placeholder for gather
+        else:
+            duration_tasks.append(get_audio_duration(audio_path))
+    
+    print(f"Fetching durations for {len(duration_tasks)} audio files...")
+    start_time_durations = time.time()
+    audio_durations_results = await asyncio.gather(*duration_tasks, return_exceptions=True)
+    print(f"Duration fetching took {time.time() - start_time_durations:.2f} seconds.")
+
+    # 4. Create video chunk generation tasks
+    video_creation_tasks = []
+    skipped_chunks_due_to_duration_error = 0
+
+    for i, pdf_image_info in enumerate(pdf_images):
+        image_path = pdf_image_info.get("image_path")
+        audio_file_info = ordered_audio_files[i]
+        audio_path = audio_file_info.get("audio_path")
+        
+        current_audio_duration_or_exc = audio_durations_results[i]
+
+        if isinstance(current_audio_duration_or_exc, Exception):
+            print(f"Skipping chunk {i+1}: Error getting audio duration - {current_audio_duration_or_exc}")
+            skipped_chunks_due_to_duration_error += 1
+            continue
+        if current_audio_duration_or_exc is None:
+            print(f"Skipping chunk {i+1}: Could not determine audio duration for {audio_path}.")
+            skipped_chunks_due_to_duration_error += 1
+            continue
+        if not image_path or not os.path.exists(image_path):
+            print(f"Skipping chunk {i+1}: Image path {image_path} missing or file does not exist.")
+            skipped_chunks_due_to_duration_error +=1 # Using same counter for simplicity
+            continue
+
+
+        actual_audio_duration = float(current_audio_duration_or_exc)
+        chunk_order = i + 1  # 1-based indexing for chunks
+
+        video_creation_tasks.append(
+            create_single_video_chunk(
+                chunk_order=chunk_order,
+                image_path=image_path,
+                audio_path=audio_path,
+                audio_duration=actual_audio_duration,
+                output_dir=script_output_dir,
+                script_id=script_id
+            )
+        )
+    
+    if not video_creation_tasks:
+        if skipped_chunks_due_to_duration_error > 0 :
+             raise HTTPException(status_code=400, detail="No video chunks could be prepared, likely due to issues with audio durations or file paths.")
+        else: # Should not happen if previous checks passed and len(pdf_images) > 0
+             raise HTTPException(status_code=500, detail="Failed to prepare any video creation tasks unexpectedly.")
+
+
+    # 5. Execute video chunk generation in parallel
+    print(f"Starting parallel generation of {len(video_creation_tasks)} video chunks...")
+    start_time_videos = time.time()
+    generation_results = await asyncio.gather(*video_creation_tasks, return_exceptions=True)
+    print(f"Video chunk generation completed in {time.time() - start_time_videos:.2f} seconds.")
+
+    # 6. Process results
+    successful_chunks_info = []
+    failed_chunks_errors = []
+
+    for result_or_exc in generation_results:
+        if isinstance(result_or_exc, Exception):
+            failed_chunks_errors.append(str(result_or_exc))
+            print(f"A video chunk generation failed: {result_or_exc}")
+        elif result_or_exc: # Should be the dict from create_single_video_chunk
+            successful_chunks_info.append(result_or_exc)
+    
+    # Here you could save `successful_chunks_info` to a new `video_chunks` database table.
+    # For example: `if successful_chunks_info: save_video_chunks_to_db(script_id, successful_chunks_info)`
+
+    total_requested_chunks = len(pdf_images)
+    return {
+        "script_id": script_id,
+        "topic": script_data["topic"],
+        "total_chunks_requested": total_requested_chunks,
+        "chunks_successfully_generated": len(successful_chunks_info),
+        "chunks_skipped_preprocessing": skipped_chunks_due_to_duration_error,
+        "chunks_failed_generation": len(failed_chunks_errors),
+        "generated_chunks_details": successful_chunks_info,
+        "generation_errors": failed_chunks_errors
+    }
+
+
+
+# ... (all other imports and functions, including get_audio_duration, create_single_video_chunk, _check_ffmpeg_tools)
+
+@app.post("/generate-video-chunks-sequentially", summary="Generate Individual Video Chunks Sequentially")
+async def generate_video_chunks_sequentially_endpoint(request: VideoChunkRequest):
+    """
+    Generates individual video chunks for a given script_id SEQUENTIALLY.
+    Each chunk combines one presentation slide (image) with its corresponding audio narration.
+    A 1-second silent buffer is added at the beginning and end of each video chunk.
+    This endpoint processes chunks one by one to reduce system load.
+    """
+    script_id = request.script_id
+    
+    try:
+        _check_ffmpeg_tools()
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # 1. Retrieve Data
+    script_data = get_script_from_db(script_id)
+    if not script_data:
+        raise HTTPException(status_code=404, detail=f"Script with id '{script_id}' not found.")
+
+    pdf_images = get_pdf_images_from_db(script_id)
+    if not pdf_images:
+        raise HTTPException(status_code=404, detail=f"No PDF slide images found for script_id '{script_id}'. Generate PDF first.")
+
+    audio_map = get_audio_from_db(script_id)
+    if not audio_map:
+        raise HTTPException(status_code=404, detail=f"No audio files found for script_id '{script_id}'. Generate audio first.")
+    
+    ordered_audio_files = list(audio_map.values())
+
+    if len(pdf_images) != len(ordered_audio_files):
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Mismatch in number of PDF images ({len(pdf_images)}) and audio files ({len(ordered_audio_files)}). "
+                "Expected them to be equal."
+            )
+        )
+    if not pdf_images:
+        raise HTTPException(status_code=400, detail="No images or audio files to process.")
+
+    # 2. Prepare for generation
+    output_base_dir = "generated_chunks"
+    script_output_dir = os.path.join(output_base_dir, script_id)
+    os.makedirs(script_output_dir, exist_ok=True)
+
+    # 3. Get all audio durations (can still be done concurrently as ffprobe is light)
+    duration_tasks = []
+    for i, audio_file_info in enumerate(ordered_audio_files):
+        audio_path = audio_file_info.get("audio_path")
+        if not audio_path or not os.path.exists(audio_path):
+            print(f"Warning: Audio path missing or file does not exist for audio entry {i}. Skipping duration check.")
+            duration_tasks.append(asyncio.sleep(0, result=None)) # Placeholder for gather
+        else:
+            duration_tasks.append(get_audio_duration(audio_path))
+    
+    print(f"Fetching durations for {len(duration_tasks)} audio files...")
+    start_time_durations = time.time()
+    audio_durations_results = await asyncio.gather(*duration_tasks, return_exceptions=True)
+    print(f"Duration fetching took {time.time() - start_time_durations:.2f} seconds.")
+
+    # 4. Prepare list of chunk parameters
+    chunk_processing_params = []
+    skipped_chunks_due_to_duration_error = 0
+
+    for i, pdf_image_info in enumerate(pdf_images):
+        image_path = pdf_image_info.get("image_path")
+        audio_file_info = ordered_audio_files[i]
+        audio_path = audio_file_info.get("audio_path")
+        
+        current_audio_duration_or_exc = audio_durations_results[i]
+
+        if isinstance(current_audio_duration_or_exc, Exception):
+            print(f"Skipping chunk {i+1}: Error getting audio duration - {current_audio_duration_or_exc}")
+            skipped_chunks_due_to_duration_error += 1
+            continue
+        if current_audio_duration_or_exc is None:
+            print(f"Skipping chunk {i+1}: Could not determine audio duration for {audio_path}.")
+            skipped_chunks_due_to_duration_error += 1
+            continue
+        if not image_path or not os.path.exists(image_path):
+            print(f"Skipping chunk {i+1}: Image path {image_path} missing or file does not exist.")
+            skipped_chunks_due_to_duration_error +=1
+            continue
+
+        actual_audio_duration = float(current_audio_duration_or_exc)
+        chunk_order = i + 1
+
+        chunk_processing_params.append({
+            "chunk_order": chunk_order,
+            "image_path": image_path,
+            "audio_path": audio_path,
+            "audio_duration": actual_audio_duration,
+            "output_dir": script_output_dir,
+            "script_id": script_id
+        })
+    
+    if not chunk_processing_params:
+        if skipped_chunks_due_to_duration_error > 0 :
+             raise HTTPException(status_code=400, detail="No video chunks could be prepared, likely due to issues with audio durations or file paths.")
+        else:
+             raise HTTPException(status_code=500, detail="Failed to prepare any video creation tasks unexpectedly.")
+
+    # 5. Execute video chunk generation SEQUENTIALLY
+    print(f"Starting sequential generation of {len(chunk_processing_params)} video chunks...")
+    start_time_videos = time.time()
+    
+    successful_chunks_info = []
+    failed_chunks_errors = []
+
+    for params in chunk_processing_params:
+        print(f"Processing chunk {params['chunk_order']} (Image: {os.path.basename(params['image_path'])}, Audio: {os.path.basename(params['audio_path'])})...")
+        try:
+            # Await each chunk creation individually
+            result = await create_single_video_chunk(
+                chunk_order=params["chunk_order"],
+                image_path=params["image_path"],
+                audio_path=params["audio_path"],
+                audio_duration=params["audio_duration"],
+                output_dir=params["output_dir"],
+                script_id=params["script_id"]
+            )
+            successful_chunks_info.append(result)
+            print(f"Successfully generated chunk {params['chunk_order']}.")
+        except Exception as e:
+            error_msg = f"Failed to generate chunk {params['chunk_order']}: {e}"
+            print(error_msg)
+            failed_chunks_errors.append(error_msg)
+            # Optionally, you can decide if one failure should stop the whole process
+            # For example: raise HTTPException(status_code=500, detail=error_msg)
+            # Or, continue to try and generate other chunks
+
+    print(f"Sequential video chunk generation completed in {time.time() - start_time_videos:.2f} seconds.")
+
+    # 6. Process results
+    # (This part is largely the same, just collating results collected in the loop)
+
+    total_requested_chunks = len(pdf_images)
+    return {
+        "script_id": script_id,
+        "topic": script_data["topic"],
+        "total_chunks_requested": total_requested_chunks,
+        "chunks_successfully_generated": len(successful_chunks_info),
+        "chunks_skipped_preprocessing": skipped_chunks_due_to_duration_error,
+        "chunks_failed_generation": len(failed_chunks_errors),
+        "generated_chunks_details": successful_chunks_info,
+        "generation_errors": failed_chunks_errors
+    }
+
+
+class CombineVideosRequest(BaseModel):
+    script_id: str
+    transition_type: str = Field("fade", description="FFmpeg xfade transition type (e.g., fade, wipeleft, slideup, dissolve).")
+    transition_duration: float = Field(1.0, gt=0, description="Duration of each transition in seconds (must be > 0).")
+    output_filename: Optional[str] = Field("final_presentation.mp4", description="Filename for the combined video.")
+
+# You already have get_audio_duration. We need a similar one for videos if durations aren't stored.
+# For simplicity, if your chunks are named predictably and are MP4, get_audio_duration might work if ffprobe
+# extracts 'format=duration' regardless of content. Let's assume it does, or create a specific one.
+
+async def get_media_duration(media_path: str) -> Optional[float]:
+    """
+    Get the duration of a media file (audio or video) using ffprobe.
+    Returns duration in seconds, or None if an error occurs.
+    """
+    if not os.path.exists(media_path):
+        print(f"Media file not found: {media_path}")
+        return None
+
+    cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        media_path
+    ]
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode == 0:
+            try:
+                return float(stdout.decode().strip())
+            except ValueError:
+                print(f"Could not parse duration from ffprobe output for {media_path}: {stdout.decode()}")
+                return None
+        else:
+            print(f"ffprobe error for {media_path}: {stderr.decode()}")
+            return None
+    except FileNotFoundError:
+        print("Error: ffprobe command not found.")
+        raise HTTPException(status_code=500, detail="ffprobe not found. Cannot process media.")
+    except Exception as e:
+        print(f"Error getting media duration for {media_path}: {e}")
+        return None
+
+# List of some common xfade transitions (not exhaustive)
+# You can get more from `ffmpeg -filters` and search for xfade
+XFADE_TRANSITIONS = [
+    "fade", "fadeblack", "fadewhite", "distance", "wipeleft", "wiperight", "wipeup",
+    "wipedown", "slideleft", "slideright", "slideup", "slidedown", "circlecrop",
+    "rectcrop", "circleclose", "circleopen", "horzclose", "horzopen", "vertclose",
+    "vertopen", "diagbl", "diagbr", "diagtl", "diagtr", "hlslice", "hrslice",
+    "vuslice", "vdslice", "dissolve", "pixelize", "radial", "smoothleft", 
+    "smoothright", "smoothup", "smoothdown", "hblur" 
+    # Add more as needed or refer to FFmpeg docs
+]
+
+
+
+@app.post("/combine-video-chunks", summary="Combine Video Chunks with Transitions")
+async def combine_video_chunks_endpoint(request: CombineVideosRequest):
+    """
+    Combines individual video chunks for a script_id into a single video
+    with specified transitions between them.
+    """
+    script_id = request.script_id
+    transition_type = request.transition_type
+    transition_duration = request.transition_duration
+    output_filename = request.output_filename if request.output_filename else f"final_presentation_{script_id}.mp4"
+
+    if transition_type not in XFADE_TRANSITIONS: # Basic validation
+        # For production, you might want a more robust check or allow any string if FFmpeg handles it
+        # raise HTTPException(status_code=400, detail=f"Unsupported transition_type: {transition_type}. Supported are: {', '.join(XFADE_TRANSITIONS)}")
+        print(f"Warning: Transition type '{transition_type}' not in predefined list. FFmpeg will attempt to use it.")
+
+
+    # --- 1. Locate and sort chunk files ---
+    chunks_input_dir = os.path.join("generated_chunks", script_id)
+    if not os.path.isdir(chunks_input_dir):
+        raise HTTPException(status_code=404, detail=f"Chunk directory not found for script_id: {script_id}")
+
+    # Assuming chunks are named like chunk_001.mp4, chunk_002.mp4, ...
+    chunk_files = sorted(glob.glob(os.path.join(chunks_input_dir, "chunk_*.mp4")))
+
+    if not chunk_files:
+        raise HTTPException(status_code=404, detail=f"No video chunk files (.mp4) found in {chunks_input_dir}")
+    if len(chunk_files) < 1: # Or < 2 if you strictly require transitions
+        raise HTTPException(status_code=400, detail="At least 1 chunk is required to create a combined video.")
+    
+    if len(chunk_files) == 1:
+        # If only one chunk, just copy it or return its path (no transition needed)
+        final_output_dir = os.path.join("generated_final_videos", script_id)
+        os.makedirs(final_output_dir, exist_ok=True)
+        final_video_path = os.path.join(final_output_dir, output_filename)
+        try:
+            shutil.copy(chunk_files[0], final_video_path)
+            return {
+                "message": "Only one chunk found. Copied as the final video.",
+                "final_video_path": final_video_path,
+                "script_id": script_id,
+                "chunks_combined": 1,
+                "transitions_applied": 0
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error copying single chunk: {e}")
+
+    # --- 2. Get durations of all chunks ---
+    chunk_durations = []
+    duration_tasks = [get_media_duration(chunk_path) for chunk_path in chunk_files]
+    
+    print(f"Fetching durations for {len(duration_tasks)} video chunks...")
+    start_time_durations = time.time()
+    durations_results = await asyncio.gather(*duration_tasks, return_exceptions=True)
+    print(f"Duration fetching took {time.time() - start_time_durations:.2f} seconds.")
+
+    for i, res in enumerate(durations_results):
+        if isinstance(res, Exception) or res is None:
+            raise HTTPException(status_code=500, detail=f"Failed to get duration for chunk {chunk_files[i]}: {res}")
+        chunk_durations.append(float(res))
+        # Validate transition duration against chunk duration (except for the last chunk)
+        if i < len(chunk_files) - 1 and chunk_durations[i] < transition_duration:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Chunk {os.path.basename(chunk_files[i])} (duration: {chunk_durations[i]}s) "
+                        f"is shorter than the transition duration ({transition_duration}s). "
+                        "This will cause issues with xfade offset calculation.")
+            )
+
+    # --- 3. Construct FFmpeg command ---
+    ffmpeg_cmd = ["ffmpeg"]
+    for chunk_path in chunk_files:
+        ffmpeg_cmd.extend(["-i", chunk_path])
+
+    filter_complex_parts = []
+    num_chunks = len(chunk_files)
+
+    # Video filter chain
+    last_video_stream_label = "0:v" # First input video stream
+    accumulated_video_duration = 0.0 
+
+    for i in range(num_chunks - 1):
+        current_chunk_duration = chunk_durations[i]
+        next_video_stream_label = f"{i+1}:v" # e.g., 1:v, 2:v, ...
+        
+        # The output label for this xfade operation
+        # If it's the last transition, the output is the final video stream "outv"
+        # Otherwise, it's an intermediate stream like "v_inter_1", "v_inter_2"
+        output_video_stream_label = "outv" if i == num_chunks - 2 else f"v_inter_{i+1}"
+
+        # Offset for xfade: transition starts 'transition_duration' seconds *before the end* of the 'last_video_stream_label'
+        # The `offset` in xfade is the time from the start of the primary input stream to when the secondary stream's fade begins.
+        # So, for the first pair [0:v][1:v], offset is duration(0:v) - transition_duration.
+        # For [v_inter_1][2:v], offset is duration(v_inter_1) - transition_duration.
+        
+        # Duration of the 'last_video_stream_label' (which is either an original chunk or an intermediate stream)
+        if i == 0: # First transition
+            duration_of_first_stream_in_pair = current_chunk_duration
+        else: # Subsequent transitions, last_video_stream_label is an intermediate stream
+            # Duration of intermediate stream = sum_of_previous_chunk_durations - (i * transition_duration)
+            duration_of_first_stream_in_pair = accumulated_video_duration 
+            # (This accumulated_video_duration is duration of previous intermediate stream)
+
+        xfade_offset = duration_of_first_stream_in_pair - transition_duration
+        if xfade_offset < 0: # Should be caught by earlier check, but good to be safe
+            raise HTTPException(status_code=500, detail=f"Calculated xfade offset is negative for transition {i+1}. This should not happen if previous checks passed.")
+
+        filter_complex_parts.append(
+            f"[{last_video_stream_label}][{next_video_stream_label}]"
+            f"xfade=transition={transition_type}:duration={transition_duration}:offset={xfade_offset}"
+            f"[{output_video_stream_label}]"
+        )
+        
+        # Update for next iteration
+        last_video_stream_label = output_video_stream_label
+        # Update accumulated duration of the *newly formed intermediate stream*
+        # Duration of stream after xfade: D(prev_stream) + D(new_chunk) - transition_duration
+        accumulated_video_duration = duration_of_first_stream_in_pair + chunk_durations[i+1] - transition_duration
+
+
+    # Audio filter chain (simpler concatenation with acrossfade)
+    last_audio_stream_label = "0:a"
+    for i in range(num_chunks - 1):
+        next_audio_stream_label = f"{i+1}:a"
+        output_audio_stream_label = "outa" if i == num_chunks - 2 else f"a_inter_{i+1}"
+        
+        filter_complex_parts.append(
+            f"[{last_audio_stream_label}][{next_audio_stream_label}]"
+            f"acrossfade=d={transition_duration}:curve1=tri:curve2=tri" # Using triangular curve for smooth fade
+            f"[{output_audio_stream_label}]"
+        )
+        last_audio_stream_label = output_audio_stream_label
+
+    final_filter_complex = ";".join(filter_complex_parts)
+    
+    ffmpeg_cmd.extend(["-filter_complex", final_filter_complex])
+    ffmpeg_cmd.extend(["-map", "[outv]"]) # Map final video stream
+    ffmpeg_cmd.extend(["-map", "[outa]"]) # Map final audio stream
+    
+    # Output settings (adjust as needed)
+    ffmpeg_cmd.extend([
+        "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+        "-c:a", "aac", "-b:a", "192k",
+        "-pix_fmt", "yuv420p", # Important for compatibility
+        "-y" # Overwrite output
+    ])
+
+    final_output_dir = os.path.join("generated_final_videos", script_id)
+    os.makedirs(final_output_dir, exist_ok=True)
+    final_video_path = os.path.join(final_output_dir, output_filename)
+    ffmpeg_cmd.append(final_video_path)
+
+    print(f"Attempting to combine {num_chunks} chunks for script_id {script_id}...")
+    print(f"FFmpeg command: {' '.join(ffmpeg_cmd)}") # For debugging
+
+    # --- 4. Execute FFmpeg ---
+    start_time_ffmpeg = time.time()
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *ffmpeg_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            error_message = f"FFmpeg failed to combine videos for script_id {script_id}.\n" \
+                            f"Return Code: {process.returncode}\n" \
+                            f"Command: {' '.join(ffmpeg_cmd)}\n" \
+                            f"Stderr: {stderr.decode()}"
+            print(error_message)
+            # Attempt to delete partially created file
+            if os.path.exists(final_video_path):
+                try:
+                    os.remove(final_video_path)
+                except Exception as e_del:
+                     error_message += f" | Also failed to delete partial file {final_video_path}: {e_del}"
+            raise HTTPException(status_code=500, detail=error_message)
+
+        ffmpeg_duration = time.time() - start_time_ffmpeg
+        print(f"FFmpeg combination successful. Took {ffmpeg_duration:.2f} seconds.")
+        
+        return {
+            "message": "Video chunks combined successfully with transitions.",
+            "final_video_path": final_video_path,
+            "script_id": script_id,
+            "chunks_combined": num_chunks,
+            "transitions_applied": num_chunks -1,
+            "transition_type": transition_type,
+            "transition_duration": transition_duration,
+            "ffmpeg_processing_time_seconds": round(ffmpeg_duration, 2)
+        }
+
+    except FileNotFoundError:
+        _check_ffmpeg_tools() # This will raise if ffmpeg is not found
+        # If it passes but still FileNotFoundError, something is very wrong with asyncio.create_subprocess_exec setup
+        raise HTTPException(status_code=500, detail="FFmpeg command not found. Ensure FFmpeg is installed and in PATH.")
+    except Exception as e:
+        # Catch any other unexpected errors during the process
+        error_detail = f"An unexpected error occurred during video combination: {str(e)}"
+        if 'process' in locals() and process.returncode != 0: # If ffmpeg failed, stderr might be more useful
+            error_detail += f"\nFFmpeg Stderr: {stderr.decode() if 'stderr' in locals() and stderr else 'N/A'}"
+        print(error_detail)
+        raise HTTPException(status_code=500, detail=error_detail)
