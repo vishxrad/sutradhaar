@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 import openai
@@ -22,6 +23,8 @@ import mimetypes
 from jinja2 import Template
 import base64
 from pathlib import Path
+from PIL import Image  # Add this import at the top
+import io
 from presentation_templates import generate_html_template, get_theme_colors
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import texttospeech  # Add this import
@@ -52,6 +55,9 @@ app.mount("/presentations", StaticFiles(directory="generated_presentations"), na
 app.mount("/audio", StaticFiles(directory="generated_audio"), name="audio")
 app.mount("/pdf-images", StaticFiles(directory="generated_pdf_images"), name="pdf-images")
 app.mount("/chunks", StaticFiles(directory="generated_chunks"), name="chunks")
+app.mount("/final-videos", StaticFiles(directory="generated_final_videos"), name="final-videos")
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 
 # Database configuration
 DATABASE_PATH = "sutradhaar.db"
@@ -79,6 +85,9 @@ class AudioRequest(BaseModel):
 class VideoChunkRequest(BaseModel):
     script_id: str
 
+@app.get("/")
+def fetch_frontend():
+    return FileResponse(os.path.join("static", "index.html"))
 
 
 # Initialize OpenAI client
@@ -685,6 +694,8 @@ async def download_unsplash_image_async(image_url: str, output_dir: str, filenam
         print(f"Error downloading Unsplash image from '{image_url}': {e}")
         return None
 
+
+# Modify the generate_single_image_with_fallback function
 async def generate_single_image_with_fallback(
     image_generator,
     slide_info: dict,
@@ -1101,6 +1112,7 @@ def generate_presentation_html(script_id: str):
                 "order": slide_order
             })
             slide_order += 1
+    
     
     # 27. Thank You Slide
     slides.append({
@@ -1718,7 +1730,25 @@ async def generate_presentation_pdf(script_id: str):
         else:
             print(f"Successfully converted PDF to {conversion_result['total_slides']} images ({conversion_result['total_size_mb']} MB)")
         
-        # Return the PDF file
+        # After PDF generation, add compression
+        if os.path.exists(pdf_path):
+            temp_compressed = pdf_path.replace('.pdf', '_temp_compressed.pdf')
+            compression_result = compress_pdf_ghostscript(pdf_path, temp_compressed, "ebook")
+            
+            if compression_result["success"]:
+                # Replace original with compressed
+                os.replace(temp_compressed, pdf_path)
+                file_size = compression_result["compressed_size"]
+                
+                print(f"PDF compressed: {compression_result['compression_ratio']}% smaller "
+                      f"({compression_result['size_reduction_mb']} MB saved)")
+            else:
+                print(f"PDF compression failed: {compression_result.get('error', 'Unknown error')}")
+                file_size = os.path.getsize(pdf_path)
+        
+        # Save with updated file size
+        save_presentation_to_db(script_id, pdf_path, filename, file_size)
+        
         return FileResponse(
             path=pdf_path,
             media_type="application/pdf",
@@ -1953,7 +1983,7 @@ async def create_single_video_chunk(
         "-i", image_path,        # Input image path
         "-i", audio_path,        # Input audio path
         # Video filters: set framerate, scale to ensure even dimensions (height divisible by 2), ensure yuv420p for compatibility
-        "-vf", "fps=25,scale=iw:-2,format=yuv420p", # <--- THE FIX IS HERE
+        "-vf", "fps=25,scale='trunc(iw/2)*2':-2,format=yuv420p", # <--- THE FIX IS HERE
         # Audio filters: delay audio by 1000ms (1s), pad end with silence to match video duration
         "-af", f"adelay=1000ms:all=1,apad", # Added 'ms:all=1' to adelay for clarity, though 1000 defaults to ms.
         "-map", "0:v",           # Map video from the first input (image)
@@ -2364,7 +2394,6 @@ XFADE_TRANSITIONS = [
 ]
 
 
-
 @app.post("/combine-video-chunks", summary="Combine Video Chunks with Transitions")
 async def combine_video_chunks_endpoint(request: CombineVideosRequest):
     """
@@ -2569,3 +2598,187 @@ async def combine_video_chunks_endpoint(request: CombineVideosRequest):
             error_detail += f"\nFFmpeg Stderr: {stderr.decode() if 'stderr' in locals() and stderr else 'N/A'}"
         print(error_detail)
         raise HTTPException(status_code=500, detail=error_detail)
+
+@app.post("/combine-video-chunks-fast", summary="Fast Video Concatenation (No Transitions)")
+async def combine_video_chunks_fast_endpoint(request: VideoChunkRequest):
+    """
+    Combines individual video chunks using FFmpeg's concat demuxer.
+    This is the fastest method as it doesn't re-encode the videos.
+    No transitions between chunks - direct cuts.
+    """
+    script_id = request.script_id
+    
+    # Locate chunk files
+    chunks_input_dir = os.path.join("generated_chunks", script_id)
+    if not os.path.isdir(chunks_input_dir):
+        raise HTTPException(status_code=404, detail=f"Chunk directory not found for script_id: {script_id}")
+
+    chunk_files = sorted(glob.glob(os.path.join(chunks_input_dir, "chunk_*.mp4")))
+    if not chunk_files:
+        raise HTTPException(status_code=404, detail=f"No video chunk files found in {chunks_input_dir}")
+
+    # Create concat file list
+    final_output_dir = os.path.join("generated_final_videos", script_id)
+    os.makedirs(final_output_dir, exist_ok=True)
+    
+    concat_file_path = os.path.join(final_output_dir, f"{script_id}_concat_list.txt")
+    output_filename = f"final_presentation_{script_id}_fast.mp4"
+    final_video_path = os.path.join(final_output_dir, output_filename)
+    
+    # Write concat file
+    try:
+        with open(concat_file_path, 'w') as f:
+            for chunk_file in chunk_files:
+                # Use absolute paths to avoid issues
+                abs_chunk_path = os.path.abspath(chunk_file)
+                f.write(f"file '{abs_chunk_path}'\n")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating concat file: {e}")
+
+    # FFmpeg concat command (much faster as it doesn't re-encode)
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", concat_file_path,
+        "-c", "copy",  # Copy streams without re-encoding
+        "-y",
+        final_video_path
+    ]
+
+    print(f"Fast concatenating {len(chunk_files)} chunks for script_id {script_id}...")
+    start_time = time.time()
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *ffmpeg_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            error_message = f"FFmpeg fast concat failed for script_id {script_id}.\n" \
+                          f"Command: {' '.join(ffmpeg_cmd)}\n" \
+                          f"Stderr: {stderr.decode()}"
+            raise HTTPException(status_code=500, detail=error_message)
+
+        processing_time = time.time() - start_time
+        
+        # Clean up concat file
+        try:
+            os.remove(concat_file_path)
+        except:
+            pass
+
+        return {
+            "message": "Video chunks concatenated successfully (fast method - no transitions).",
+            "final_video_path": final_video_path,
+            "script_id": script_id,
+            "chunks_combined": len(chunk_files),
+            "method": "fast_concat",
+            "processing_time_seconds": round(processing_time, 2),
+            "note": "No transitions applied for maximum speed"
+        }
+
+    except Exception as e:
+        # Clean up on error
+        try:
+            os.remove(concat_file_path)
+        except:
+            pass
+        raise HTTPException(status_code=500, detail=f"Error during fast concatenation: {e}")
+
+def compress_pdf_ghostscript(input_path: str, output_path: str, quality: str = "ebook") -> dict:
+    """
+    Compress PDF using Ghostscript with detailed results
+    """
+    try:
+        original_size = os.path.getsize(input_path)
+        
+        cmd = [
+            "gs",
+            "-sDEVICE=pdfwrite",
+            "-dCompatibilityLevel=1.4",
+            "-dPDFSETTINGS=/" + quality,
+            "-dNOPAUSE",
+            "-dQUIET",
+            "-dBATCH",
+            f"-sOutputFile={output_path}",
+            input_path
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        
+        if result.returncode == 0 and os.path.exists(output_path):
+            compressed_size = os.path.getsize(output_path)
+            compression_ratio = (1 - compressed_size / original_size) * 100
+            
+            return {
+                "success": True,
+                "original_size": original_size,
+                "compressed_size": compressed_size,
+                "compression_ratio": round(compression_ratio, 1),
+                "size_reduction_mb": round((original_size - compressed_size) / (1024 * 1024), 2)
+            }
+        else:
+            return {"success": False, "error": result.stderr}
+            
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+# Update your PDF endpoint
+# ...existing code...
+        # After PDF generation, add compression
+        if os.path.exists(pdf_path):
+            temp_compressed = pdf_path.replace('.pdf', '_temp_compressed.pdf')
+            compression_result = compress_pdf_ghostscript(pdf_path, temp_compressed, "ebook")
+            
+            if compression_result["success"]:
+                # Replace original with compressed
+                os.replace(temp_compressed, pdf_path)
+                file_size = compression_result["compressed_size"]
+                
+                print(f"PDF compressed: {compression_result['compression_ratio']}% smaller "
+                      f"({compression_result['size_reduction_mb']} MB saved)")
+            else:
+                print(f"PDF compression failed: {compression_result.get('error', 'Unknown error')}")
+                file_size = os.path.getsize(pdf_path)
+        
+        # Save with updated file size
+        save_presentation_to_db(script_id, pdf_path, filename, file_size)
+        
+        return FileResponse(
+            path=pdf_path,
+            media_type="application/pdf",
+            filename=filename,
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except subprocess.TimeoutExpired:
+        # Clean up PDF file if it was partially created
+        if os.path.exists(pdf_path):
+            try:
+                os.unlink(pdf_path)
+            except:
+                pass
+        raise HTTPException(status_code=500, detail="PDF generation timed out")
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500, 
+            detail="Decktape not found. Please install it with: npm install -g decktape"
+        )
+    except Exception as e:
+        # Clean up PDF file if it was partially created
+        if os.path.exists(pdf_path):
+            try:
+                os.unlink(pdf_path)
+            except:
+                pass
+        raise HTTPException(status_code=500, detail=f"Error generating PDF: {str(e)}")
+    finally:
+        # Clean up temporary HTML file (we don't store this)
+        try:
+            os.unlink(temp_html_path)
+        except:
+            pass

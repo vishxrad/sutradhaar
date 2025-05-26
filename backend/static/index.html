@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>सूत्रधार - AI Presentation Generator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes scaleIn {
+            from { opacity: 0; transform: scale(0.8); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        
+        .animate-fade-in { animation: fadeIn 0.6s ease-out forwards; }
+        .animate-scale-in { animation: scaleIn 0.8s ease-out forwards; }
+        
+        .progress-bar {
+            width: 0%;
+            transition: width 0.1s ease-out;
+        }
+        
+        .blur-background {
+            backdrop-filter: blur(8px);
+        }
+        
+        .status-pending { color: #6b7280; }
+        .status-loading { color: #f59e0b; }
+        .status-success { color: #10b981; }
+        .status-error { color: #ef4444; }
+        
+        .segment {
+            background: #f8fafc;
+            padding: 1rem;
+            margin: 0.5rem 0;
+            border-radius: 0.5rem;
+            border-left: 4px solid #3b82f6;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 min-h-screen">
+    <!-- Splash Screen -->
+    <div id="splashScreen" class="min-h-screen flex flex-col items-center justify-center px-6 opacity-100 translate-y-0 transition-all duration-700">
+        <!-- Moving Dots Background -->
+        <div class="absolute inset-0 overflow-hidden pointer-events-none">
+            <div class="absolute w-2 h-2 bg-blue-300/30 rounded-full animate-pulse" style="left: 10%; top: 20%; animation-delay: 0.5s; animation-duration: 3s;"></div>
+            <div class="absolute w-2 h-2 bg-blue-300/30 rounded-full animate-pulse" style="left: 80%; top: 30%; animation-delay: 1s; animation-duration: 2.5s;"></div>
+            <div class="absolute w-2 h-2 bg-blue-300/30 rounded-full animate-pulse" style="left: 60%; top: 70%; animation-delay: 1.5s; animation-duration: 4s;"></div>
+            <div class="absolute w-2 h-2 bg-blue-300/30 rounded-full animate-pulse" style="left: 30%; top: 80%; animation-delay: 2s; animation-duration: 3.5s;"></div>
+            <div class="absolute w-2 h-2 bg-blue-300/30 rounded-full animate-pulse" style="left: 90%; top: 60%; animation-delay: 0.8s; animation-duration: 2.8s;"></div>
+        </div>
+
+        <!-- Logo with animated rings -->
+        <div class="relative mb-8">
+            <div class="absolute inset-0 animate-ping">
+                <div class="w-32 h-32 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full opacity-20"></div>
+            </div>
+            <div class="absolute inset-2 animate-pulse">
+                <div class="w-28 h-28 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full opacity-40"></div>
+            </div>
+            <div class="relative w-24 h-24 bg-gradient-to-br from-blue-600 to-purple-700 rounded-full flex items-center justify-center shadow-xl">
+                <div class="text-white text-3xl font-bold">स</div>
+            </div>
+        </div>
+
+        <!-- Main content -->
+        <div class="text-center space-y-6 max-w-2xl">
+            <h1 class="text-[80px] leading-[3] md:text-7xl font-bold text-indigo-700 bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent">
+                सूत्रधार
+            </h1>
+            
+            <p class="text-xl md:text-2xl text-gray-600 leading-relaxed">
+                AI-Powered Presentation Generator
+            </p>
+            
+            <p class="text-lg text-gray-500 max-w-lg mx-auto">
+                Transform your ideas into stunning presentations with the power of artificial intelligence
+            </p>
+            
+            <div class="pt-8">
+                <button onclick="showMainPage()" class="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold px-8 py-4 text-lg transition-all duration-300 transform hover:scale-105 shadow-xl rounded-lg">
+                    Get Started
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Page -->
+    <div id="mainPage" class="min-h-screen hidden opacity-0 translate-y-10 transition-all duration-700">
+        <!-- Header -->
+        <div class="relative z-10 p-6">
+            <button onclick="showSplashScreen()" class="text-gray-700 hover:text-blue-600 transition-colors flex items-center">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                </svg>
+                Back to Home
+            </button>
+        </div>
+
+        <!-- Moving Dots Background -->
+        <div class="absolute inset-0 overflow-hidden pointer-events-none">
+            <div class="absolute w-1.5 h-1.5 bg-blue-300/20 rounded-full animate-pulse" style="left: 15%; top: 25%; animation-delay: 0.3s; animation-duration: 2.5s;"></div>
+            <div class="absolute w-1.5 h-1.5 bg-blue-300/20 rounded-full animate-pulse" style="left: 75%; top: 35%; animation-delay: 0.8s; animation-duration: 3s;"></div>
+            <div class="absolute w-1.5 h-1.5 bg-blue-300/20 rounded-full animate-pulse" style="left: 50%; top: 75%; animation-delay: 1.2s; animation-duration: 2.8s;"></div>
+            <div class="absolute w-1.5 h-1.5 bg-blue-300/20 rounded-full animate-pulse" style="left: 25%; top: 85%; animation-delay: 1.7s; animation-duration: 3.2s;"></div>
+            <div class="absolute w-1.5 h-1.5 bg-blue-300/20 rounded-full animate-pulse" style="left: 85%; top: 55%; animation-delay: 0.6s; animation-duration: 2.7s;"></div>
+        </div>
+
+        <!-- Main Content -->
+        <div id="mainContent" class="flex flex-col items-center justify-center min-h-[80vh] px-6">
+            <div class="max-w-4xl w-full">
+                <!-- Header Section -->
+                <div class="text-center space-y-6 mb-12">
+                    <!-- Logo -->
+                    <div class="flex justify-center mb-6">
+                        <div class="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-xl">
+                            <div class="text-white text-2xl font-bold">स</div>
+                        </div>
+                    </div>
+                    
+                    <h1 class="text-5xl md:text-6xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent">
+                        सूत्रधार
+                    </h1>
+                    
+                    <p class="text-xl md:text-2xl text-gray-600 leading-relaxed">
+                        AI-Powered Presentation Generator
+                    </p>
+
+                    <!-- Rotating Greeting -->
+                    <div class="h-8 flex items-center justify-center">
+                        <p id="greetingText" class="text-lg text-gray-500 transition-all duration-500 animate-fade-in">
+                            Transform Text to Video
+                        </p>
+                    </div>
+                </div>
+<video id="videoPlayer" controls style="display: none; width: 100%; max-width: 800px; margin-top: 20px;">
+  <source id="videoSource" src="" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
+
+                <!-- Input Section -->
+                <div class="bg-white/80 backdrop-blur-sm border border-gray-200 rounded-2xl p-8 shadow-xl mb-8">
+                    <div class="space-y-6">
+                        <div>
+                            <label for="topic" class="block text-lg font-semibold text-gray-700 mb-3">
+                                Enter your presentation topic:
+                            </label>
+                            <input
+                                type="text"
+                                id="topic"
+                                placeholder="e.g., Introduction to Machine Learning, Climate Change, etc."
+                                class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg text-lg focus:border-blue-500 focus:outline-none transition-colors"
+                            />
+                        </div>
+
+                        <!-- Suggestion Tags -->
+                        <div>
+                            <p class="text-sm text-gray-600 mb-3">Quick suggestions:</p>
+                            <div class="flex flex-wrap gap-2">
+                                <button onclick="setSuggestion('Introduction to Machine Learning')" class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition-colors">
+                                    Introduction to Machine Learning
+                                </button>
+                                <button onclick="setSuggestion('Climate Change and Global Warming')" class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition-colors">
+                                    Climate Change and Global Warming
+                                </button>
+                                <button onclick="setSuggestion('History of Ancient Civilizations')" class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition-colors">
+                                    History of Ancient Civilizations
+                                </button>
+                                <button onclick="setSuggestion('Quantum Physics Basics')" class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition-colors">
+                                    Quantum Physics Basics
+                                </button>
+                                <button onclick="setSuggestion('Digital Marketing Strategies')" class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition-colors">
+                                    Digital Marketing Strategies
+                                </button>
+                                <button onclick="setSuggestion('Sustainable Energy Solutions')" class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition-colors">
+                                    Sustainable Energy Solutions
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <button
+                            onclick="generatePresentation()"
+                            id="generateBtn"
+                            class="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold py-4 text-lg transition-all duration-300 transform hover:scale-105 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <span id="btnText">Generate Presentation</span>
+                            <span id="btnSpinner" style="display: none;">
+                                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Generating...
+                            </span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Status Section -->
+                <div id="statusSection" class="bg-white/80 backdrop-blur-sm border border-gray-200 rounded-2xl p-8 shadow-xl mb-8" style="display: none;">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 text-center">Generation Progress</h3>
+                    <div class="space-y-4">
+                        <div id="scriptStatus" class="flex items-center p-4 bg-gray-50 rounded-lg">
+                            <span class="status-icon status-pending w-8 h-8 rounded-full bg-gray-300 text-white font-bold flex items-center justify-center mr-4">1</span>
+                            <span class="status-text text-gray-600">Waiting to generate script...</span>
+                        </div>
+                        <div id="imagesStatus" class="flex items-center p-4 bg-gray-50 rounded-lg">
+                            <span class="status-icon status-pending w-8 h-8 rounded-full bg-gray-300 text-white font-bold flex items-center justify-center mr-4">2</span>
+                            <span class="status-text text-gray-600">Waiting to generate images...</span>
+                        </div>
+                        <div id="audioStatus" class="flex items-center p-4 bg-gray-50 rounded-lg">
+                            <span class="status-icon status-pending w-8 h-8 rounded-full bg-gray-300 text-white font-bold flex items-center justify-center mr-4">3</span>
+                            <span class="status-text text-gray-600">Waiting to generate audio...</span>
+                        </div>
+                        <div id="pdfStatus" class="flex items-center p-4 bg-gray-50 rounded-lg">
+                            <span class="status-icon status-pending w-8 h-8 rounded-full bg-gray-300 text-white font-bold flex items-center justify-center mr-4">4</span>
+                            <span class="status-text text-gray-600">Waiting to create PDF...</span>
+                        </div>
+                        <div id="videoChunksStatus" class="flex items-center p-4 bg-gray-50 rounded-lg">
+                            <span class="status-icon status-pending w-8 h-8 rounded-full bg-gray-300 text-white font-bold flex items-center justify-center mr-4">5</span>
+                            <span class="status-text text-gray-600">Waiting to generate video chunks...</span>
+                        </div>
+                        <div id="combineVideoStatus" class="flex items-center p-4 bg-gray-50 rounded-lg">
+                            <span class="status-icon status-pending w-8 h-8 rounded-full bg-gray-300 text-white font-bold flex items-center justify-center mr-4">6</span>
+                            <span class="status-text text-gray-600">Waiting to combine video...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Script Preview Section -->
+                <div id="scriptPreview" class="bg-white/80 backdrop-blur-sm border border-gray-200 rounded-2xl p-8 shadow-xl mb-8" style="display: none;">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 text-center">Generated Script Preview</h3>
+                    <div id="scriptContent" class="space-y-4 max-h-64 overflow-y-auto">
+                        <!-- Script content will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Error Section -->
+                <div id="errorSection" class="bg-red-50 border border-red-200 rounded-2xl p-8 shadow-xl mb-8 text-center" style="display: none;">
+                    <h3 class="text-2xl font-bold text-red-800 mb-4">⚠️ Error Occurred</h3>
+                    <p id="errorMessage" class="text-red-600 mb-6"></p>
+                    <button onclick="resetUI()" class="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg">
+                        Try Again
+                    </button>
+                </div>
+
+                <!-- Download Section -->
+                <div id="downloadSection" class="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-2xl p-8 shadow-xl text-center" style="display: none;">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-4">🎉 Presentation Ready!</h3>
+                    <p class="text-gray-600 mb-6">Your presentation assets have been generated successfully.</p>
+                    <div class="flex flex-wrap justify-center gap-4">
+                        <a id="pdfViewer" href="#" download class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg flex items-center" style="display: none;">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                            Download PDF
+                        </a>
+                        <!-- <a id="videoPlayer" href="#" download class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg flex items-center" style="display: none;">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                            </svg>
+                            Download Video
+                        </a> -->
+                    </div>
+                    <button onclick="showHistory()">Show Report</button>
+<div id="reportContainer" style="margin-top: 20px; display: none;">
+  <h3>Generated History</h3>
+  <table border="1" style="width: 100%; border-collapse: collapse;">
+    <thead>
+      <tr>
+        <th>Topic</th>
+        <th>Script</th>
+        <th>PDF</th>
+        <th>Video</th>
+      </tr>
+    </thead>
+    <tbody id="historyTableBody"></tbody>
+  </table>
+</div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API Base URL
+        const API_BASE = 'https://sutradhaar.zsapiens.com';
+        let currentScriptId = null;
+let historyData = [];
+historyData.push({
+  topic,
+  script: scriptUrl,
+  pdf: pdfUrl,
+  video: videoUrl
+});
+function showHistory() {
+  const container = document.getElementById('reportContainer');
+  const body = document.getElementById('historyTableBody');
+  body.innerHTML = '';
+  
+  historyData.forEach(item => {
+    const row = `
+      <tr>
+        <td>${item.topic}</td>
+        <td><a href="${item.script}" target="_blank">Script</a></td>
+        <td><a href="${item.pdf}" target="_blank">PDF</a></td>
+        <td><a href="${item.video}" target="_blank">Video</a></td>
+      </tr>
+    `;
+    body.innerHTML += row;
+  });
+
+  container.style.display = 'block';
+}
+
+        // Greeting rotation
+        const greetings = [
+            "Transform Text to Video",
+            "पाठ को वीडियो में बदलें",
+            "Trasforma il testo in video", 
+            "转文本为视频",
+            "حوّل النص إلى فيديو",
+            "Transformez le texte en vidéo",
+            "ಪಠ್ಯವನ್ನು ವೀಡಿಯೋಗೆ ಪರಿವರ್ತನೆ ಮಾಡಿ",
+            "Chuyển đổi văn bản thành video",
+            "पाठं चित्रपटं परिवर्तनं",
+            "पाठ के वीडियो में बदलिए",
+            "Vakavuna na Ivola me Vakaata na Video",
+            "Text in Video umwandeln",
+            "Ubah Teks Menjadi Video",
+            "पाठलाई भिडियामा रूपान्तरण गर्नुहोस्",
+            "ലേഖനം വിഡിയോയുടെ രൂപത്തിലേക്ക് പരിവർത്തനം ചെയ്യുക",
+            "मजकूराचें व्हिडियोंत रुपांतर करप",
+            "पाठ के वीडियो में रूपांतरित करू",
+            "Преобразовать текст в видео"
+        ];
+
+        let currentGreeting = 0;
+        function rotateGreeting() {
+            const greetingElement = document.getElementById('greetingText');
+            if (greetingElement) {
+                currentGreeting = (currentGreeting + 1) % greetings.length;
+                greetingElement.textContent = greetings[currentGreeting];
+            }
+        }
+        setInterval(rotateGreeting, 2500);
+
+        function showMainPage() {
+            document.getElementById('splashScreen').style.display = 'none';
+            document.getElementById('mainPage').style.display = 'block';
+            setTimeout(() => {
+                document.getElementById('mainPage').classList.remove('opacity-0', 'translate-y-10');
+                document.getElementById('mainPage').classList.add('opacity-100', 'translate-y-0');
+            }, 50);
+        }
+document.getElementById('videoSource').src = videoUrl;
+const videoElement = document.getElementById('presentationVideo');
+videoElement.style.display = 'block';
+videoElement.load();
+
+        function showSplashScreen() {
+            document.getElementById('mainPage').classList.add('opacity-0', 'translate-y-10');
+            document.getElementById('mainPage').classList.remove('opacity-100', 'translate-y-0');
+            setTimeout(() => {
+                document.getElementById('mainPage').style.display = 'none';
+                document.getElementById('splashScreen').style.display = 'flex';
+            }, 700);
+        }
+
+        function setSuggestion(suggestion) {
+            document.getElementById('topic').value = suggestion;
+        }
+
+        async function generatePresentation() {
+            console.log('Generate presentation clicked');
+            const topic = document.getElementById('topic').value.trim();
+            if (!topic) {
+                showError('Please enter a topic for your presentation.');
+                return;
+            }
+
+            resetUI();
+            setButtonLoading(true);
+            document.getElementById('statusSection').style.display = 'block';
+
+            try {
+                // Step 1: Generate Script
+                console.log('Starting script generation...');
+                updateStatus('scriptStatus', 'loading', 'Generating script content...');
+                
+                const scriptRes = await fetch(`${API_BASE}/generate-script`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ topic })
+                });
+
+                if (!scriptRes.ok) {
+                    const errorData = await scriptRes.json().catch(() => ({}));
+                    throw new Error(`Script generation failed: ${errorData.detail || scriptRes.statusText}`);
+                }
+                
+                const scriptData = await scriptRes.json();
+                currentScriptId = scriptData.script_id;
+                updateStatus('scriptStatus', 'success', 'Script generated successfully!');
+                showScriptPreview(scriptData.parsed_script, scriptData.topic);
+
+                // Step 2: Generate Images
+                console.log('Starting image generation...');
+                updateStatus('imagesStatus', 'loading', 'Generating images for slides...');
+                const imagesRes = await fetch(`${API_BASE}/generate-images`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ script_id: currentScriptId, use_unsplash_fallback: true })
+                });
+                
+                if (!imagesRes.ok) {
+                    const errorData = await imagesRes.json().catch(() => ({}));
+                    throw new Error(`Image generation failed: ${errorData.detail || imagesRes.statusText}`);
+                }
+                
+                const imagesData = await imagesRes.json();
+                updateStatus('imagesStatus', 'success', `Images generated! (${imagesData.stats.vertex_ai_success || 0} AI + ${imagesData.stats.unsplash_fallback || 0} stock)`);
+
+                // Step 3: Generate Audio
+                console.log('Starting audio generation...');
+                updateStatus('audioStatus', 'loading', 'Generating audio narrations...');
+                const audioRes = await fetch(`${API_BASE}/generate-audio`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ script_id: currentScriptId, speaker: "female" })
+                });
+                
+                if (!audioRes.ok) {
+                    const errorData = await audioRes.json().catch(() => ({}));
+                    throw new Error(`Audio generation failed: ${errorData.detail || audioRes.statusText}`);
+                }
+                
+                const audioData = await audioRes.json();
+                updateStatus('audioStatus', 'success', `Audio generated! (${audioData.stats.successful || 0} files)`);
+
+                // Step 4: Generate PDF
+                console.log('Starting PDF generation...');
+                updateStatus('pdfStatus', 'loading', 'Creating PDF presentation...');
+                const pdfRes = await fetch(`${API_BASE}/presentation/${currentScriptId}/pdf`);
+                
+                if (!pdfRes.ok) {
+                    const errorData = await pdfRes.json().catch(() => ({}));
+                    throw new Error(`PDF generation failed: ${errorData.detail || pdfRes.statusText}`);
+                }
+                
+                const pdfBlob = await pdfRes.blob();
+                const pdfUrl = URL.createObjectURL(pdfBlob);
+                updateStatus('pdfStatus', 'success', 'PDF presentation ready!');
+
+                // Step 5: Generate Video Chunks
+                console.log('Starting video chunk generation...');
+                updateStatus('videoChunksStatus', 'loading', 'Generating video chunks...');
+                const videoChunksRes = await fetch(`${API_BASE}/generate-video-chunks`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ script_id: currentScriptId })
+                });
+                
+                const videoChunksData = await videoChunksRes.json();
+                if (!videoChunksRes.ok || videoChunksData.chunks_successfully_generated === 0) {
+                    throw new Error(`Video chunk generation failed: ${videoChunksData.detail || 'No chunks created'}`);
+                }
+                updateStatus('videoChunksStatus', 'success', `Chunks created: ${videoChunksData.chunks_successfully_generated}`);
+
+                // Step 6: Combine Chunks
+                console.log('Starting video combination...');
+                updateStatus('combineVideoStatus', 'loading', 'Combining video...');
+                const combineRes = await fetch(`${API_BASE}/combine-video-chunks-fast`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        script_id: currentScriptId,
+                        transition_type: "fade",
+                        transition_duration: 1.0
+                    })
+                });
+                
+                if (!combineRes.ok) {
+                    const errorData = await combineRes.json().catch(() => ({}));
+                    throw new Error(`Combining video failed: ${errorData.detail || combineRes.statusText}`);
+                }
+                
+                const combineData = await combineRes.json();
+                const videoFileName = combineData.final_video_path.split('/').pop();
+                const videoUrl = `${API_BASE}/final_videos/${currentScriptId}/${videoFileName}`;
+
+                updateStatus('combineVideoStatus', 'success', 'Final video ready!');
+                showDownloadSection(pdfUrl, `${topic.replace(/[^a-zA-Z0-9]/g, '_')}_presentation.pdf`, videoUrl, videoFileName);
+
+            } catch (error) {
+                console.error('Generation error:', error);
+                showError(error.message);
+            } finally {
+                setButtonLoading(false);
+            }
+        }
+
+        function updateStatus(id, status, msg) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            
+            const icon = el.querySelector('.status-icon');
+            const text = el.querySelector('.status-text');
+            
+            if (icon) {
+                icon.className = 'status-icon w-8 h-8 rounded-full font-bold flex items-center justify-center mr-4';
+                
+                if (status === 'loading') {
+                    icon.classList.add('status-loading', 'bg-yellow-500', 'text-white');
+                    icon.textContent = '⏳';
+                } else if (status === 'success') {
+                    icon.classList.add('status-success', 'bg-green-500', 'text-white');
+                    icon.textContent = '✓';
+                } else if (status === 'error') {
+                    icon.classList.add('status-error', 'bg-red-500', 'text-white');
+                    icon.textContent = '✗';
+                } else {
+                    icon.classList.add('status-pending', 'bg-gray-300', 'text-white');
+                }
+            }
+            
+            if (text) {
+                text.textContent = msg;
+            }
+        }
+
+        function showScriptPreview(parsedScript, topic) {
+            const preview = document.getElementById('scriptContent');
+            if (!preview) return;
+            
+            preview.innerHTML = `<div class="segment"><h4>📋 Topic: ${topic}</h4></div>` +
+                parsedScript.map((seg, i) => `
+                    <div class="segment">
+                        <h4>📚 Segment ${i + 1}: ${seg.segment_title}</h4>
+                        <p><strong>Summary:</strong> ${seg.summary}</p>
+                        <p><strong>Slides:</strong> ${seg.slides.length} slides</p>
+                    </div>`).join('');
+            document.getElementById('scriptPreview').style.display = 'block';
+        }
+
+        // function showDownloadSection(pdfUrl, pdfName, videoUrl, videoName) {
+        //     const pdfBtn = document.getElementById('downloadPdfBtn');
+        //     const videoBtn = document.getElementById('downloadVideoBtn');
+            
+        //     if (pdfBtn) {
+        //         pdfBtn.href = pdfUrl;
+        //         pdfBtn.download = pdfName;
+        //         pdfBtn.style.display = 'inline-flex';
+        //     }
+
+        //     if (videoBtn && videoUrl && videoName) {
+        //         videoBtn.href = videoUrl;
+        //         videoBtn.download = videoName;
+        //         videoBtn.style.display = 'inline-flex';
+        //     } else if (videoBtn) {
+        //         videoBtn.style.display = 'none';
+        //     }
+
+        //     document.getElementById('downloadSection').style.display = 'block';
+        // }
+        function showDownloadSection(pdfUrl, pdfName, videoUrl, videoName) {
+    const pdfBtn = document.getElementById('downloadPdfBtn');
+    const videoBtn = document.getElementById('downloadVideoBtn');
+
+    // Set download buttons
+    if (pdfBtn) {
+        pdfBtn.href = pdfUrl;
+        pdfBtn.download = pdfName;
+        pdfBtn.style.display = 'inline-flex';
+    }
+
+    if (videoBtn && videoUrl && videoName) {
+        videoBtn.href = videoUrl;
+        videoBtn.download = videoName;
+        videoBtn.style.display = 'inline-flex';
+    } else if (videoBtn) {
+        videoBtn.style.display = 'none';
+    }
+
+    // ⬇️ Embed PDF
+    const pdfContainer = document.getElementById('pdfViewer');
+    if (pdfContainer) {
+        pdfContainer.innerHTML = `
+            <iframe src="${pdfUrl}" width="100%" height="600px" style="border:1px solid #ccc;"></iframe>
+        `;
+        pdfContainer.style.display = 'block';
+    }
+
+    // ⬇️ Embed Video
+    const videoContainer = document.getElementById('videoPlayer');
+    if (videoContainer) {
+        videoContainer.innerHTML = `
+            <video width="100%" height="400px" controls>
+                <source src="${videoUrl}" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+        `;
+        videoContainer.style.display = 'block';
+    }
+
+    document.getElementById('downloadSection').style.display = 'block';
+}
+
+
+        function showError(msg) {
+            const errorSection = document.getElementById('errorSection');
+            const errorMessage = document.getElementById('errorMessage');
+            
+            if (errorMessage) {
+                errorMessage.textContent = msg;
+            }
+            
+            if (errorSection) {
+                errorSection.style.display = 'block';
+            }
+        }
+
+        function setButtonLoading(isLoading) {
+            const btn = document.getElementById('generateBtn');
+            const btnText = document.getElementById('btnText');
+            const btnSpinner = document.getElementById('btnSpinner');
+            
+            if (btn) {
+                btn.disabled = isLoading;
+            }
+            
+            if (btnText) {
+                btnText.style.display = isLoading ? 'none' : 'inline';
+            }
+            
+            if (btnSpinner) {
+                btnSpinner.style.display = isLoading ? 'inline' : 'none';
+            }
+        }
+
+        function resetUI() {
+            currentScriptId = null;
+            
+            // Reset status indicators
+            ['scriptStatus', 'imagesStatus', 'audioStatus', 'pdfStatus', 'videoChunksStatus', 'combineVideoStatus'].forEach((id, i) => {
+                const el = document.getElementById(id);
+                if (el) {
+                    const icon = el.querySelector('.status-icon');
+                    const text = el.querySelector('.status-text');
+                    
+                    if (icon) {
+                        icon.className = 'status-icon status-pending w-8 h-8 rounded-full bg-gray-300 text-white font-bold flex items-center justify-center mr-4';
+                        icon.textContent = (i + 1).toString();
+                    }
+                    
+                    if (text) {
+                        text.textContent = '';
+                    }
+                }
+            });
+            
+            // Hide sections
+            ['statusSection', 'scriptPreview', 'downloadSection', 'errorSection'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.style.display = 'none';
+                }
+            });
+        }
+
+        // Trigger on Enter key
+        document.addEventListener('DOMContentLoaded', function() {
+            const topicInput = document.getElementById('topic');
+            if (topicInput) {
+                topicInput.addEventListener('keypress', function (e) {
+                    if (e.key === 'Enter') {
+                        generatePresentation();
+                    }
+                });
+            }
+        });
+
+        // Test function to check if everything is working
+        function testFunction() {
+            console.log('Test function called - JavaScript is working!');
+            alert('JavaScript is working correctly!');
+        }
+
+        // Add a test button click handler to verify JS is working
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM Content Loaded - Page is ready');
+            
+            // Test that all required elements exist
+            const requiredElements = [
+                'topic', 'generateBtn', 'statusSection', 'scriptPreview', 
+                'downloadSection', 'errorSection', 'btnText', 'btnSpinner'
+            ];
+            
+            requiredElements.forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) {
+                    console.error(`Missing element with ID: ${id}`);
+                } else {
+                    console.log(`Found element: ${id}`);
+                }
+            });
+        });
+    </script>
+</body>
+</html>
