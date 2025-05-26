@@ -206,6 +206,7 @@
             text-decoration: none;
             display: inline-block;
             transition: background 0.3s;
+            margin: 5px; /* Added for spacing if multiple buttons */
         }
 
         .download-btn:hover {
@@ -278,6 +279,27 @@
                         <div class="status-text">Compiling final presentation...</div>
                     </div>
                 </div>
+                <div class="status-item" id="audioStatus">
+                    <div class="status-icon status-pending">4</div>
+                    <div>
+                        <strong>Generating Audio</strong>
+                        <div class="status-text">Creating narrations for slides...</div>
+                    </div>
+                </div>
+                <div class="status-item" id="videoChunksStatus">
+                    <div class="status-icon status-pending">5</div>
+                    <div>
+                        <strong>Generating Video Chunks</strong>
+                        <div class="status-text">Preparing individual video segments...</div>
+                    </div>
+                </div>
+                <div class="status-item" id="combineVideoStatus">
+                    <div class="status-icon status-pending">6</div>
+                    <div>
+                        <strong>Combining Video</strong>
+                        <div class="status-text">Assembling final video presentation...</div>
+                    </div>
+                </div>
             </div>
             
             <div class="script-preview" id="scriptPreview">
@@ -287,9 +309,12 @@
             
             <div class="download-section" id="downloadSection">
                 <h3>🎉 Presentation Ready!</h3>
-                <p>Your presentation has been generated successfully.</p>
-                <a href="#" class="download-btn" id="downloadBtn" download>
-                    📥 Download PDF Presentation
+                <p>Your presentation assets have been generated successfully.</p>
+                <a href="#" class="download-btn" id="downloadPdfBtn" download>
+                    📥 Download PDF
+                </a>
+                <a href="#" class="download-btn" id="downloadVideoBtn" download style="display: none;">
+                    🎬 Download Video
                 </a>
             </div>
             
@@ -302,6 +327,7 @@
 
     <script>
         const API_BASE = 'http://localhost:8000';  // Adjust if your FastAPI server runs on a different port
+        let currentScriptId = null; // Store scriptId globally for sequential operations
         
         async function generatePresentation() {
             const topic = document.getElementById('topic').value.trim();
@@ -318,6 +344,7 @@
             
             try {
                 // Step 1: Generate Script
+                // Uses POST /generate-script
                 updateStatus('scriptStatus', 'loading', 'Generating script content...');
                 const scriptResponse = await fetch(`${API_BASE}/generate-script`, {
                     method: 'POST',
@@ -328,16 +355,18 @@
                 });
                 
                 if (!scriptResponse.ok) {
-                    throw new Error(`Script generation failed: ${scriptResponse.statusText}`);
+                    const errorData = await scriptResponse.json().catch(() => ({ detail: scriptResponse.statusText }));
+                    throw new Error(`Script generation failed: ${errorData.detail || scriptResponse.statusText}`);
                 }
                 
                 const scriptData = await scriptResponse.json();
-                const scriptId = scriptData.script_id;
+                currentScriptId = scriptData.script_id; // Store scriptId
                 
                 updateStatus('scriptStatus', 'success', 'Script generated successfully!');
                 showScriptPreview(scriptData.parsed_script, scriptData.topic);
                 
                 // Step 2: Generate Images
+                // Uses POST /generate-images
                 updateStatus('imagesStatus', 'loading', 'Generating images for slides...');
                 const imagesResponse = await fetch(`${API_BASE}/generate-images`, {
                     method: 'POST',
@@ -345,13 +374,14 @@
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({ 
-                        script_id: scriptId,
+                        script_id: currentScriptId,
                         use_unsplash_fallback: true 
                     }),
                 });
                 
                 if (!imagesResponse.ok) {
-                    throw new Error(`Image generation failed: ${imagesResponse.statusText}`);
+                    const errorData = await imagesResponse.json().catch(() => ({ detail: imagesResponse.statusText }));
+                    throw new Error(`Image generation failed: ${errorData.detail || imagesResponse.statusText}`);
                 }
                 
                 const imagesData = await imagesResponse.json();
@@ -359,24 +389,113 @@
                     `Images generated! (${imagesData.stats.vertex_ai_success} AI + ${imagesData.stats.unsplash_fallback} stock)`
                 );
                 
-                // Step 3: Generate PDF
+                // Step 3: Generate Audio
+                // Uses POST /generate-audio
+                updateStatus('audioStatus', 'loading', 'Generating audio narrations (this may take a moment)...');
+                const audioResponse = await fetch(`${API_BASE}/generate-audio`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        script_id: currentScriptId,
+                        speaker: "female" // Or make this configurable
+                    }),
+                });
+
+                if (!audioResponse.ok) {
+                    const errorData = await audioResponse.json().catch(() => ({ detail: audioResponse.statusText }));
+                    throw new Error(`Audio generation failed: ${errorData.detail || audioResponse.statusText}`);
+                }
+
+                const audioData = await audioResponse.json();
+                updateStatus('audioStatus', 'success', 
+                    `Audio generated successfully! (${audioData.stats.successful} files)`
+                );
+
+                // Step 4: Generate PDF
+                // Uses GET /presentation/{script_id}/pdf
                 updateStatus('pdfStatus', 'loading', 'Creating PDF presentation...');
-                const pdfResponse = await fetch(`${API_BASE}/presentation/${scriptId}/pdf`);
+                const pdfResponse = await fetch(`${API_BASE}/presentation/${currentScriptId}/pdf`);
                 
                 if (!pdfResponse.ok) {
-                    throw new Error(`PDF generation failed: ${pdfResponse.statusText}`);
+                    const errorData = await pdfResponse.json().catch(() => ({ detail: pdfResponse.statusText }));
+                    throw new Error(`PDF generation failed: ${errorData.detail || pdfResponse.statusText}`);
                 }
                 
-                // Create blob URL for download
                 const pdfBlob = await pdfResponse.blob();
                 const pdfUrl = URL.createObjectURL(pdfBlob);
                 
                 updateStatus('pdfStatus', 'success', 'PDF presentation ready!');
-                showDownloadSection(pdfUrl, `${topic.replace(/[^a-zA-Z0-9]/g, '_')}_presentation.pdf`);
+                showDownloadSection(pdfUrl, `${topic.replace(/[^a-zA-Z0-9]/g, '_')}_presentation.pdf`, null);
+
+                // Step 5: Generate Video Chunks
+                // Uses POST /generate-video-chunks-sequentially
+                updateStatus('videoChunksStatus', 'loading', 'Generating video chunks (this may take a while)...');
+                const videoChunksResponse = await fetch(`${API_BASE}/generate-video-chunks-sequentially`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ script_id: currentScriptId }),
+                });
+
+                if (!videoChunksResponse.ok) {
+                    const errorData = await videoChunksResponse.json().catch(() => ({ detail: videoChunksResponse.statusText }));
+                    throw new Error(`Video chunk generation failed: ${errorData.detail || videoChunksResponse.statusText}`);
+                }
+                const videoChunksData = await videoChunksResponse.json();
+                if (videoChunksData.chunks_failed_generation > 0 || videoChunksData.chunks_skipped_preprocessing > 0) {
+                     console.warn('Video chunk generation issues:', videoChunksData.generation_errors);
+                     updateStatus('videoChunksStatus', 'success', `Video chunks processed with some issues. ${videoChunksData.chunks_successfully_generated} successful.`);
+                } else {
+                    updateStatus('videoChunksStatus', 'success', `Video chunks generated successfully (${videoChunksData.chunks_successfully_generated} chunks).`);
+                }
+                if (videoChunksData.chunks_successfully_generated === 0) {
+                    throw new Error('No video chunks were successfully generated. Cannot proceed to combine video.');
+                }
+
+                // Step 6: Combine Video Chunks
+                // Uses POST /combine-video-chunks
+                updateStatus('combineVideoStatus', 'loading', 'Combining video chunks into final presentation (this may also take a while)...');
+                const combineVideoResponse = await fetch(`${API_BASE}/combine-video-chunks`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        script_id: currentScriptId,
+                        transition_type: "fade", // Default transition
+                        transition_duration: 1.0 // Default duration
+                    }),
+                });
+
+                if (!combineVideoResponse.ok) {
+                    const errorData = await combineVideoResponse.json().catch(() => ({ detail: combineVideoResponse.statusText }));
+                    throw new Error(`Combining video failed: ${errorData.detail || combineVideoResponse.statusText}`);
+                }
+                const combineVideoData = await combineVideoResponse.json();
+                const finalVideoPath = combineVideoData.final_video_path;
+                // The final_video_path is a server path. We need to construct a downloadable URL.
+                // Assuming your FastAPI serves 'generated_final_videos' similar to other static dirs.
+                // e.g., app.mount("/final-videos", StaticFiles(directory="generated_final_videos"), name="final-videos")
+                // The URL would then be `${API_BASE}/final-videos/${currentScriptId}/${output_filename}`
+                // For simplicity, let's assume the backend returns a direct relative path that can be appended to API_BASE
+                // Or, even better, if the backend could return a full URL or a path that's easy to make absolute.
+                // For now, we'll construct it based on the typical structure.
+                const videoFileName = finalVideoPath.split('/').pop();
+                const videoUrl = `${API_BASE}/final_videos/${currentScriptId}/${videoFileName}`; // Adjust this if your static mount is different
+
+                updateStatus('combineVideoStatus', 'success', 'Final video assembled!');
+                showDownloadSection(pdfUrl, `${topic.replace(/[^a-zA-Z0-9]/g, '_')}_presentation.pdf`, videoUrl, videoFileName);
                 
             } catch (error) {
-                console.error('Error:', error);
-                showError(`Generation failed: ${error.message}`);
+                console.error('Error in generation pipeline:', error);
+                showError(`Process failed: ${error.message}`);
+                // Mark the step that failed, if possible
+                if (error.message.includes("Script generation")) updateStatus('scriptStatus', 'error', error.message);
+                else if (error.message.includes("Image generation")) updateStatus('imagesStatus', 'error', error.message);
+                else if (error.message.includes("Audio generation")) updateStatus('audioStatus', 'error', error.message);
+                else if (error.message.includes("PDF generation")) updateStatus('pdfStatus', 'error', error.message);
+                else if (error.message.includes("Video chunk generation")) updateStatus('videoChunksStatus', 'error', error.message);
+                else if (error.message.includes("Combining video")) updateStatus('combineVideoStatus', 'error', error.message);
+
             } finally {
                 setButtonLoading(false);
             }
@@ -432,12 +551,26 @@
             previewSection.style.display = 'block';
         }
         
-        function showDownloadSection(pdfUrl, filename) {
+        function showDownloadSection(pdfUrl, pdfFilename, videoUrl, videoFilename) {
             const downloadSection = document.getElementById('downloadSection');
-            const downloadBtn = document.getElementById('downloadBtn');
+            const downloadPdfBtn = document.getElementById('downloadPdfBtn');
+            const downloadVideoBtn = document.getElementById('downloadVideoBtn');
             
-            downloadBtn.href = pdfUrl;
-            downloadBtn.download = filename;
+            if (pdfUrl && pdfFilename) {
+                downloadPdfBtn.href = pdfUrl;
+                downloadPdfBtn.download = pdfFilename;
+                downloadPdfBtn.style.display = 'inline-block';
+            } else {
+                downloadPdfBtn.style.display = 'none';
+            }
+
+            if (videoUrl && videoFilename) {
+                downloadVideoBtn.href = videoUrl;
+                downloadVideoBtn.download = videoFilename; // The browser will use this as the suggested name
+                downloadVideoBtn.style.display = 'inline-block';
+            } else {
+                downloadVideoBtn.style.display = 'none';
+            }
             downloadSection.style.display = 'block';
         }
         
@@ -464,20 +597,24 @@
             document.getElementById('scriptPreview').style.display = 'none';
             document.getElementById('downloadSection').style.display = 'none';
             document.getElementById('errorSection').style.display = 'none';
+            currentScriptId = null;
             
             // Reset status items
-            ['scriptStatus', 'imagesStatus', 'pdfStatus'].forEach((id, index) => {
+            ['scriptStatus', 'imagesStatus', 'audioStatus', 'pdfStatus', 'videoChunksStatus', 'combineVideoStatus'].forEach((id, index) => {
                 const element = document.getElementById(id);
                 const icon = element.querySelector('.status-icon');
                 const text = element.querySelector('.status-text');
                 
                 icon.className = 'status-icon status-pending';
-                icon.innerHTML = index + 1;
+                icon.innerHTML = index + 1; // Update numbering
                 
                 const messages = [
                     'Creating educational content structure...',
                     'Creating visual content for slides...',
-                    'Compiling final presentation...'
+                    'Creating narrations for slides...',
+                    'Compiling final presentation...',
+                    'Preparing individual video segments...',
+                    'Assembling final video presentation...'
                 ];
                 text.textContent = messages[index];
             });
