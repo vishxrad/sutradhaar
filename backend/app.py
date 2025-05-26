@@ -257,6 +257,21 @@ def init_database():
             )
         ''')
         
+        # Create pdf_images table for individual slide images
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS pdf_images (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                script_id TEXT NOT NULL,
+                slide_number INTEGER NOT NULL,
+                image_path TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                created_at REAL NOT NULL,
+                FOREIGN KEY (script_id) REFERENCES scripts (script_id),
+                UNIQUE(script_id, slide_number)
+            )
+        ''')
+        
         conn.commit()
         print("Database initialized successfully with all tables and columns")
 
@@ -1426,30 +1441,75 @@ def get_script_audio(script_id: str):
         "audio_files": audio_files
     }
 
-def save_pdf_images_to_db(script_id: str, images_folder: str) -> bool:
-    """Save PDF images folder path to database"""
+def save_pdf_images_to_db(script_id: str, images_data: List[dict]) -> bool:
+    """Save individual PDF image paths to database"""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            current_time = time.time()
             
-            # Add pdf_images_path column if it doesn't exist
-            try:
-                cursor.execute('ALTER TABLE presentations ADD COLUMN pdf_images_path TEXT')
-            except sqlite3.OperationalError:
-                # Column already exists
-                pass
+            # Clear existing PDF images for this script
+            cursor.execute('DELETE FROM pdf_images WHERE script_id = ?', (script_id,))
             
-            # Update the presentation record with images folder path
-            cursor.execute('''
-                UPDATE presentations 
-                SET pdf_images_path = ?
-                WHERE script_id = ?
-            ''', (images_folder, script_id))
+            # Insert new PDF image records
+            for image_info in images_data:
+                cursor.execute('''
+                    INSERT INTO pdf_images 
+                    (script_id, slide_number, image_path, filename, file_size, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    script_id,
+                    image_info["slide_number"],
+                    image_info["image_path"],
+                    image_info["filename"],
+                    image_info["file_size"],
+                    current_time
+                ))
             
             conn.commit()
             return True
     except Exception as e:
-        print(f"Error saving PDF images path to database: {e}")
+        print(f"Error saving PDF images to database: {e}")
+        return False
+
+def get_pdf_images_from_db(script_id: str) -> List[dict]:
+    """Retrieve PDF image data from database"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT slide_number, image_path, filename, file_size, created_at
+                FROM pdf_images 
+                WHERE script_id = ?
+                ORDER BY slide_number
+            ''', (script_id,))
+            
+            rows = cursor.fetchall()
+            return [
+                {
+                    "slide_number": row["slide_number"],
+                    "image_path": row["image_path"],
+                    "filename": row["filename"],
+                    "file_size": row["file_size"],
+                    "created_at": row["created_at"]
+                }
+                for row in rows
+            ]
+    except Exception as e:
+        print(f"Error retrieving PDF images from database: {e}")
+        return []
+
+def delete_pdf_images_from_db(script_id: str) -> bool:
+    """Delete PDF image records from database"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM pdf_images WHERE script_id = ?', (script_id,))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"Error deleting PDF images from database: {e}")
         return False
 
 def convert_pdf_to_images(script_id: str, pdf_path: str) -> dict:
@@ -1467,17 +1527,14 @@ def convert_pdf_to_images(script_id: str, pdf_path: str) -> dict:
         print(f"Images will be saved to: {script_images_dir}")
         
         # Convert PDF to images
-        # DPI controls image quality (150 is good balance of quality/file size)
         images = convert_from_path(
             pdf_path,
             dpi=150,
-            # Remove output_folder to prevent automatic saving
             fmt='jpeg'
-            # Remove jpegopt since we'll control quality in image.save()
         )
         
-        # Save images with consistent naming
-        image_paths = []
+        # Prepare data for database storage
+        images_data = []
         conversion_results = {
             "script_id": script_id,
             "pdf_path": pdf_path,
@@ -1500,8 +1557,17 @@ def convert_pdf_to_images(script_id: str, pdf_path: str) -> dict:
                 # Get file size
                 file_size = os.path.getsize(image_path)
                 
+                # Add to results
                 conversion_results["image_paths"].append(image_path)
                 conversion_results["file_sizes"].append(file_size)
+                
+                # Prepare data for database
+                images_data.append({
+                    "slide_number": i,
+                    "image_path": image_path,
+                    "filename": image_filename,
+                    "file_size": file_size
+                })
                 
                 print(f"Saved slide {i}: {image_path} ({file_size} bytes)")
                 
@@ -1510,18 +1576,23 @@ def convert_pdf_to_images(script_id: str, pdf_path: str) -> dict:
                 conversion_results["errors"].append(error_msg)
                 print(f"Error: {error_msg}")
         
-        # Calculate total size of all images
+        # Calculate total size
         total_size = sum(conversion_results["file_sizes"])
         conversion_results["total_size_bytes"] = total_size
         conversion_results["total_size_mb"] = round(total_size / (1024 * 1024), 2)
         
-        # Save images folder path to database
+        # Save individual image paths to database
+        if images_data:
+            if save_pdf_images_to_db(script_id, images_data):
+                conversion_results["database_saved"] = True
+                print(f"Saved {len(images_data)} PDF image records to database")
+            else:
+                conversion_results["database_saved"] = False
+                conversion_results["errors"].append("Failed to save image paths to database")
+        
+        # Also update presentations table with folder path (for backward compatibility)
         if save_pdf_images_to_db(script_id, script_images_dir):
-            conversion_results["database_saved"] = True
-            print(f"PDF images path saved to database: {script_images_dir}")
-        else:
-            conversion_results["database_saved"] = False
-            conversion_results["errors"].append("Failed to save images path to database")
+            print(f"PDF images folder path saved to database: {script_images_dir}")
         
         print(f"PDF conversion completed: {len(images)} slides, {conversion_results['total_size_mb']} MB total")
         return conversion_results
@@ -1677,41 +1748,104 @@ def get_presentation_images(script_id: str):
     """
     Get information about the PDF slide images for a presentation
     """
-    # Get presentation data
-    presentation_data = get_presentation_from_db(script_id)
-    if not presentation_data:
-        raise HTTPException(status_code=404, detail="Presentation not found")
+    # Check if script exists
+    script_data = get_script_from_db(script_id)
+    if not script_data:
+        raise HTTPException(status_code=404, detail="Script not found")
     
-    images_folder = presentation_data.get("pdf_images_path")
-    if not images_folder or not os.path.exists(images_folder):
-        raise HTTPException(status_code=404, detail="PDF images not found. Generate PDF first.")
+    # Get PDF images from database
+    pdf_images = get_pdf_images_from_db(script_id)
     
-    # Get list of image files
+    if not pdf_images:
+        # Try to get from presentation data (fallback for old data)
+        presentation_data = get_presentation_from_db(script_id)
+        if not presentation_data:
+            raise HTTPException(status_code=404, detail="Presentation not found")
+        
+        images_folder = presentation_data.get("pdf_images_path")
+        if not images_folder or not os.path.exists(images_folder):
+            raise HTTPException(status_code=404, detail="PDF images not found. Generate PDF first.")
+        
+        # Migrate old data by reading from filesystem
+        try:
+            images_data = []
+            for filename in sorted(os.listdir(images_folder)):
+                if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    file_path = os.path.join(images_folder, filename)
+                    file_size = os.path.getsize(file_path)
+                    slide_number = int(filename.split('_')[1].split('.')[0]) if '_' in filename else 0
+                    
+                    images_data.append({
+                        "slide_number": slide_number,
+                        "image_path": file_path,
+                        "filename": filename,
+                        "file_size": file_size
+                    })
+            
+            # Save to database for future use
+            if images_data:
+                save_pdf_images_to_db(script_id, images_data)
+                pdf_images = images_data
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error reading images folder: {str(e)}")
+    
+    # Verify that image files still exist
+    valid_images = []
+    for image_info in pdf_images:
+        if os.path.exists(image_info["image_path"]):
+            valid_images.append(image_info)
+        else:
+            print(f"Warning: Image file not found: {image_info['image_path']}")
+    
+    total_size = sum(img["file_size"] for img in valid_images)
+    
+    return {
+        "script_id": script_id,
+        "topic": script_data["topic"],
+        "total_images": len(valid_images),
+        "total_size_bytes": total_size,
+        "total_size_mb": round(total_size / (1024 * 1024), 2),
+        "images": valid_images
+    }
+
+@app.get("/presentation/{script_id}/image/{slide_number}")
+def get_presentation_slide_image(script_id: str, slide_number: int):
+    """
+    Get a specific slide image by slide number
+    """
+    from fastapi.responses import FileResponse
+    
+    # Get the specific image from database
     try:
-        image_files = []
-        for filename in sorted(os.listdir(images_folder)):
-            if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
-                file_path = os.path.join(images_folder, filename)
-                file_size = os.path.getsize(file_path)
-                
-                image_files.append({
-                    "filename": filename,
-                    "file_path": file_path,
-                    "file_size": file_size,
-                    "slide_number": int(filename.split('_')[1].split('.')[0]) if '_' in filename else 0
-                })
-        
-        total_size = sum(img["file_size"] for img in image_files)
-        
-        return {
-            "script_id": script_id,
-            "images_folder": images_folder,
-            "total_images": len(image_files),
-            "total_size_bytes": total_size,
-            "total_size_mb": round(total_size / (1024 * 1024), 2),
-            "images": image_files
-        }
-        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT image_path, filename, file_size
+                FROM pdf_images 
+                WHERE script_id = ? AND slide_number = ?
+            ''', (script_id, slide_number))
+            
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail=f"Slide {slide_number} not found")
+            
+            image_path = row["image_path"]
+            filename = row["filename"]
+            
+            if not os.path.exists(image_path):
+                raise HTTPException(status_code=404, detail=f"Image file not found: {image_path}")
+            
+            # Determine MIME type
+            mime_type = "image/jpeg" if filename.lower().endswith(('.jpg', '.jpeg')) else "image/png"
+            
+            return FileResponse(
+                path=image_path,
+                media_type=mime_type,
+                filename=filename
+            )
+            
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading images folder: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving slide image: {str(e)}")
 
