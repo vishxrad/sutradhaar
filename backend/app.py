@@ -55,7 +55,7 @@ app.mount("/presentations", StaticFiles(directory="generated_presentations"), na
 app.mount("/audio", StaticFiles(directory="generated_audio"), name="audio")
 app.mount("/pdf-images", StaticFiles(directory="generated_pdf_images"), name="pdf-images")
 app.mount("/chunks", StaticFiles(directory="generated_chunks"), name="chunks")
-app.mount("/final-videos", StaticFiles(directory="generated_final_videos"), name="final-videos")
+app.mount("/generated_final_videos", StaticFiles(directory="generated_final_videos"), name="generated_final_videos")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
@@ -2376,7 +2376,7 @@ async def get_media_duration(media_path: str) -> Optional[float]:
             return None
     except FileNotFoundError:
         print("Error: ffprobe command not found.")
-        raise HTTPException(status_code=500, detail="ffprobe not found. Cannot process media.")
+        raise HTTPException(status_code=500, detail="ffprobe not found.")
     except Exception as e:
         print(f"Error getting media duration for {media_path}: {e}")
         return None
@@ -2618,11 +2618,12 @@ async def combine_video_chunks_fast_endpoint(request: VideoChunkRequest):
         raise HTTPException(status_code=404, detail=f"No video chunk files found in {chunks_input_dir}")
 
     # Create concat file list
-    final_output_dir = os.path.join("generated_final_videos", script_id)
+    final_output_base_dir = "generated_final_videos"
+    final_output_dir = os.path.join(final_output_base_dir, script_id)
     os.makedirs(final_output_dir, exist_ok=True)
     
     concat_file_path = os.path.join(final_output_dir, f"{script_id}_concat_list.txt")
-    output_filename = f"final_presentation_{script_id}_fast.mp4"
+    output_filename = f"final_presentation_{script_id}.mp4"
     final_video_path = os.path.join(final_output_dir, output_filename)
     
     # Write concat file
@@ -2672,14 +2673,12 @@ async def combine_video_chunks_fast_endpoint(request: VideoChunkRequest):
             pass
 
         return {
-            "message": "Video chunks concatenated successfully (fast method - no transitions).",
-            "final_video_path": final_video_path,
-            "script_id": script_id,
-            "chunks_combined": len(chunk_files),
-            "method": "fast_concat",
-            "processing_time_seconds": round(processing_time, 2),
-            "note": "No transitions applied for maximum speed"
-        }
+        "script_id": script_id,
+        "final_video_path": final_video_path,
+        "video_url": f"/final-videos/{script_id}/{output_filename}",  # This should match
+        "message": "Video combined successfully",
+        "file_exists": os.path.exists(final_video_path)
+    }
 
     except Exception as e:
         # Clean up on error
