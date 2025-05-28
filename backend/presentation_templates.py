@@ -304,6 +304,7 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
       line-height: 1.6;
       max-width: 1400px;
       margin: 0 auto;
+      text-align: justify; /* Justify text in section slides */
     }
     
     /* Main Slide - 16:9 optimized */
@@ -334,7 +335,7 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
     .main-slide-text {
       font-size: 42px;
       line-height: 1.7;
-      text-align: left;
+      text-align: justify; /* Justify text in main slides */
     }
     
     .main-slide-image {
@@ -384,6 +385,7 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
     .thankyou-slide p {
       font-size: 48px;
       opacity: 0.9;
+      text-align: justify; /* Justify text in thank-you slides */
     }
     
     /* Controls - Scaled for 16:9 */

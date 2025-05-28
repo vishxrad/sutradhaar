@@ -2781,3 +2781,93 @@ def compress_pdf_ghostscript(input_path: str, output_path: str, quality: str = "
             os.unlink(temp_html_path)
         except:
             pass
+
+
+@app.get("/assets/all")
+def get_all_assets():
+    """
+    Retrieve all generated scripts, PDFs, and videos from database
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get all scripts with their associated assets
+            cursor.execute('''
+                SELECT 
+                    s.script_id,
+                    s.topic,
+                    s.created_at as script_created_at,
+                    p.pdf_path,
+                    p.filename as pdf_filename,
+                    p.file_size as pdf_file_size,
+                    p.created_at as pdf_created_at
+                FROM scripts s
+                LEFT JOIN presentations p ON s.script_id = p.script_id
+                ORDER BY s.created_at DESC
+            ''')
+            
+            rows = cursor.fetchall()
+            assets = []
+            
+            for row in rows:
+                script_id = row["script_id"]
+                
+                # Check for video files in the file system
+                video_path = None
+                video_url = None
+                video_file_size = 0
+                
+                final_video_dir = f"generated_final_videos/{script_id}"
+                if os.path.exists(final_video_dir):
+                    video_files = glob.glob(os.path.join(final_video_dir, "*.mp4"))
+                    if video_files:
+                        video_path = video_files[0]  # Take the first video file
+                        video_filename = os.path.basename(video_path)
+                        video_url = f"/generated_final_videos/{script_id}/{video_filename}"
+                        video_file_size = os.path.getsize(video_path)
+                
+                # Format file sizes
+                def format_file_size(size_bytes):
+                    if size_bytes == 0:
+                        return "0 B"
+                    elif size_bytes < 1024:
+                        return f"{size_bytes} B"
+                    elif size_bytes < 1024**2:
+                        return f"{size_bytes/1024:.1f} KB"
+                    elif size_bytes < 1024**3:
+                        return f"{size_bytes/(1024**2):.1f} MB"
+                    else:
+                        return f"{size_bytes/(1024**3):.1f} GB"
+                
+                asset = {
+                    "script_id": script_id,
+                    "topic": row["topic"],
+                    "script_created_at": row["script_created_at"],
+                    "script_url": f"/script/{script_id}",
+                    "pdf": {
+                        "available": bool(row["pdf_path"] and os.path.exists(row["pdf_path"])),
+                        "path": row["pdf_path"],
+                        "filename": row["pdf_filename"],
+                        "file_size": format_file_size(row["pdf_file_size"] or 0),
+                        "download_url": f"/presentation/{script_id}/pdf" if row["pdf_path"] else None,
+                        "created_at": row["pdf_created_at"]
+                    },
+                    "video": {
+                        "available": bool(video_path and os.path.exists(video_path)),
+                        "path": video_path,
+                        "file_size": format_file_size(video_file_size),
+                        "video_url": video_url,
+                        "filename": os.path.basename(video_path) if video_path else None
+                    }
+                }
+                assets.append(asset)
+            
+            return {
+                "total_assets": len(assets),
+                "assets": assets
+            }
+            
+    except Exception as e:
+        print(f"Error retrieving all assets: {e}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving assets: {str(e)}")
