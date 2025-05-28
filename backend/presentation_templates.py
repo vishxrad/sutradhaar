@@ -1,6 +1,7 @@
 from jinja2 import Template
 import os
 from app import *
+
 def get_theme_colors(images_data: dict) -> dict:
     """Extract theme colors from all available images using K-means clustering"""
     try:
@@ -252,7 +253,7 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js/dist/theme/black.css">
   
   <!-- Google Fonts -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
 
   <style>
     /* Force 16:9 aspect ratio */
@@ -290,63 +291,240 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
     .reveal h1, .reveal h2, .reveal h3 {
       font-family: 'Inter', sans-serif;
       font-weight: 600;
-      margin: 0 !important;
+      /* Remove the global margin: 0 !important; */
     }
     
-    /* Title Slide - 16:9 optimized */
-    .title-slide {
-      background: linear-gradient(135deg, {{ theme.primary_color }} 0%, {{ theme.accent_color }} 100%);
+    .section-slide h2 {
+      font-size: 90px;
+      font-weight: 700;
+      line-height: 1.25;
       color: white;
+      text-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+      margin-top: 0 !important;
+      margin-bottom: 30px !important; /* This should now work */
+      padding-bottom: 0;
+      position: relative;
+      max-width: 85%;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    
+    /* Update the ::after pseudo-element */
+    .section-slide h2::after {
+      content: '';
+      display: block;
+      width: 120px;
+      height: 6px;
+      background: rgba(255,255,255,0.45);
+      border-radius: 3px;
+      margin-top: 30px; /* Space between H2 text and the line */
+      margin-bottom: 0; /* Remove this since the line doesn't need bottom margin */
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .section-slide p {
+      font-size: 40px;
+      font-weight: 300;
+      line-height: 1.6;
+      max-width: 70%;
+      margin-top: 40px !important; /* Space after the h2::after line */
+      margin-bottom: 0 !important;
+      margin-left: auto;
+      margin-right: auto;
+      opacity: 0.9;
       text-align: center;
     }
     
+    /* Enhanced Title Slide with Image Background and Overlay */
+    .title-slide {
+      position: relative;
+      color: white;
+      text-align: center;
+      overflow: hidden;
+      padding: 0 !important;
+      background: linear-gradient(135deg, {{ theme.primary_color }} 0%, {{ theme.accent_color }} 100%);
+    }
+    
+    /* Background image for title slide */
+    .title-slide-background {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+    
+    .title-slide-background img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      filter: blur(2px) brightness(0.8);
+    }
+    
+    /* Gradient overlay for better text readability */
+    .title-slide-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(
+        135deg,
+        rgba({{ theme.primary_color | replace('rgb(', '') | replace(')', '') }}, 0.85) 0%,
+        rgba({{ theme.accent_color | replace('rgb(', '') | replace(')', '') }}, 0.75) 50%,
+        rgba(0, 0, 0, 0.6) 100%
+      );
+      z-index: 2;
+    }
+    
+    /* Decorative elements */
+    .title-slide-overlay::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: 
+        radial-gradient(circle at 20% 20%, rgba(255,255,255,0.1) 0%, transparent 50%),
+        radial-gradient(circle at 80% 80%, rgba(255,255,255,0.05) 0%, transparent 50%);
+      z-index: 1;
+    }
+    
+    /* Content container */
+    .title-slide-content {
+      position: relative;
+      z-index: 3;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 80px;
+      text-align: center;
+    }
+    
+    /* Title styling */
     .title-slide h1 {
       font-size: 120px;
-      font-weight: 700;
-      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-      line-height: 1.2;
+      font-weight: 800;
+      text-shadow: 3px 3px 6px rgba(0,0,0,0.5);
+      line-height: 1.1;
       max-width: 1600px;
-      margin: 0 auto;
+      margin: 0 auto 40px auto;
+      background: linear-gradient(45deg, #ffffff, rgba(255,255,255,0.9));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: titleGlow 3s ease-in-out infinite alternate;
+    }
+    
+    @keyframes titleGlow {
+      0% {
+        filter: drop-shadow(0 0 20px rgba(255,255,255,0.3));
+      }
+      100% {
+        filter: drop-shadow(0 0 30px rgba(255,255,255,0.5));
+      }
+    }
+    
+    /* Subtitle for presentations */
+    .title-slide-subtitle {
+      font-size: 36px;
+      font-weight: 300;
+      opacity: 0.9;
+      margin-top: 20px;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+      letter-spacing: 2px;
+    }
+    
+    /* Fallback styling when no image is available */
+    .title-slide.no-image {
+      background: linear-gradient(135deg, {{ theme.primary_color }} 0%, {{ theme.accent_color }} 100%);
+    }
+    
+    .title-slide.no-image .title-slide-content {
+      background: rgba(255,255,255,0.05);
+      backdrop-filter: blur(10px);
+      border-radius: 30px;
+      border: 1px solid rgba(255,255,255,0.1);
+      margin: 100px;
+      box-shadow: 0 25px 50px rgba(0,0,0,0.2);
     }
     
     /* Section Slide - 16:9 optimized */
     .section-slide {
-      background: linear-gradient(45deg, {{ theme.primary_color }} 0%, {{ theme.accent_color }} 100%);
+      background: linear-gradient(145deg, {{ theme.primary_color }} 10%, {{ theme.accent_color }} 90%); /* Updated gradient */
       color: white;
-      text-align: center;
+      /* Override general section alignment and padding to position content at the top */
+      justify-content: flex-start !important; 
+      align-items: center !important; /* Center content horizontally */
+      padding-top: 80px !important; /* More space from the top edge */
+      padding-left: 60px !important; /* Standard horizontal padding */
+      padding-right: 60px !important;
+      padding-bottom: 60px !important; /* Standard bottom padding */
+      text-align: center; /* Default text alignment for children */
     }
-    
+
     .section-slide h2 {
-      font-size: 96px;
-      margin-bottom: 60px;
-      border-bottom: 6px solid rgba(255,255,255,0.3);
-      padding-bottom: 30px;
-      max-width: 1600px;
+    font-size: 90px; /* Prominent but balanced size */
+    font-weight: 700; /* Bolder than default h2 */
+    line-height: 1.25;
+    color: white;
+    text-shadow: 2px 2px 5px rgba(0,0,0,0.3); /* Subtle depth */
+    margin-top: 0 !important; /* Override global margin:0!important */
+    margin-bottom: 0 !important; /* Let ::after handle spacing below */
+    padding-bottom: 0; /* No extra padding needed here */
+    position: relative; /* For ::after pseudo-element positioning */
+    max-width: 85%; /* Prevent title from being too wide */
+    margin-left: auto; /* Center the title horizontally */
+    margin-right: auto; /* Center the title horizontally */
+  }
+    
+    /* Decorative separator line for section title */
+    .section-slide h2::after {
+      content: '';
+      display: block; /* Makes margin work as expected */
+      width: 120px; /* Width of the line */
+      height: 6px;  /* Thickness of the line */
+      background: rgba(255,255,255,0.45); /* Semi-transparent white, good contrast */
+      border-radius: 3px; /* Rounded ends */
+      margin-top: 30px; /* Space between H2 text and the line */
+      margin-bottom: 0; /* Remove this since the line doesn't need bottom margin */
+      margin-left: auto; /* Centers the line */
+      margin-right: auto; /* Centers the line */
+    }
+
+    .section-slide p {
+      font-size: 40px; /* Readable size for section description */
+      font-weight: 300; /* Lighter weight for descriptive text */
+      line-height: 1.6;
+      max-width: 70%; /* Constrain width for better readability */
+      margin-top: 40px !important; /* Space after the h2::after line */
+      margin-bottom: 0 !important; /* Override global margin if any on P by mistake */
       margin-left: auto;
       margin-right: auto;
-    }
-    
-    .section-slide p {
-      font-size: 48px;
-      line-height: 1.6;
-      max-width: 1400px;
-      margin: 0 auto;
-      text-align: justify; /* Justify text in section slides */
+      opacity: 0.9; /* Slightly subdued */
+      text-align: center; /* Ensure paragraph text is centered */
     }
     
     /* Main Slide Layout 1 - Original (Text left, Image right) */
     .main-slide {
-      background: linear-gradient(135deg, {{ theme.main_slide_bg }} 0%, rgba(255,255,255,0.98) 100%);
-      color: #2c3e50;
+      background: #ffffff !important;
+      color: #2c3e50 !important;
+      justify-content: flex-start !important; /* Ensure headings start at top */
+      padding-top: 80px !important; 
     }
     
     .main-slide h2 {
-      font-size: 84px;
-      margin-bottom: 60px;
+      font-size: 72px;
+      margin-bottom: 50px;
       text-align: center;
-      max-width: 1600px;
-      margin-left: auto;
-      margin-right: auto;
+      margin-top: 0 !important; 
+      color: #2c3e50 !important;
+      text-shadow: none;
     }
     
     .main-slide-content {
@@ -357,12 +535,14 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
       max-width: 1600px;
       margin: 0 auto;
       height: auto;
+      flex: 1;
     }
     
     .main-slide-text {
       font-size: 42px;
       line-height: 1.7;
       text-align: justify;
+      color: #2c3e50 !important;
     }
     
     .main-slide-image {
@@ -399,16 +579,16 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
 
     /* Layout 2 - Image Dominant Left (70% image, 30% text) */
     .main-image-dominant {
-      background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, {{ theme.main_slide_bg }} 100%);
-      color: #2c3e50;
+      background: #ffffff !important;
+      color: #2c3e50 !important;
     }
     
     .main-image-dominant h2 {
       font-size: 72px;
       margin-bottom: 50px;
       text-align: center;
-      color: {{ theme.primary_color }};
-      text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+      color: #2c3e50 !important;
+      text-shadow: none;
     }
     
     .main-image-dominant .content-container {
@@ -451,7 +631,7 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
       font-size: 38px;
       line-height: 1.6;
       text-align: left;
-      color: #34495e;
+      color: #2c3e50 !important;
     }
     
     .main-image-dominant .no-image-placeholder {
@@ -468,16 +648,16 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
 
     /* Layout 2B - Image Dominant Right (30% text, 70% image) */
     .main-image-dominant-2 {
-      background: linear-gradient(135deg, {{ theme.main_slide_bg }} 0%, rgba(255,255,255,0.95) 100%);
-      color: #2c3e50;
+      background: #ffffff !important;
+      color: #2c3e50 !important;
     }
     
     .main-image-dominant-2 h2 {
       font-size: 72px;
       margin-bottom: 50px;
       text-align: center;
-      color: {{ theme.primary_color }};
-      text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+      color: #2c3e50 !important;
+      text-shadow: none;
     }
     
     .main-image-dominant-2 .content-container {
@@ -501,7 +681,7 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
       font-size: 38px;
       line-height: 1.6;
       text-align: right;
-      color: #34495e;
+      color: #2c3e50 !important;
     }
     
     .main-image-dominant-2 .image-section {
@@ -537,8 +717,8 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
 
     /* Layout 3 - Image Top Full Width */
     .main-image-top {
-      background: #ffffff;
-      color: #2c3e50;
+      background: #ffffff !important;
+      color: #2c3e50 !important;
       display: flex !important;
       flex-direction: column !important;
       justify-content: flex-start !important;
@@ -546,10 +726,12 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
     }
     
     .main-image-top h2 {
-      font-size: 76px;
-      margin: 50px 60px 40px 60px;
+      font-size: 72px;
+      margin-bottom: 50px;
       text-align: center;
-      color: {{ theme.primary_color }};
+      color: #2c3e50 !important;
+      text-shadow: none;
+      margin: 50px 60px 40px 60px;
       background: rgba(255,255,255,0.9);
       padding: 20px;
       border-radius: 15px;
@@ -586,7 +768,7 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
       display: flex;
       align-items: center;
       justify-content: center;
-      background: linear-gradient(135deg, {{ theme.main_slide_bg }}, rgba(255,255,255,0.98));
+      background: #ffffff !important;
     }
     
     .main-image-top .bottom-text-container p {
@@ -594,7 +776,7 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
       line-height: 1.65;
       text-align: justify;
       max-width: 1400px;
-      color: #34495e;
+      color: #2c3e50 !important;
     }
     
     .main-image-top .no-image-placeholder {
@@ -609,8 +791,8 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
 
     /* Layout 4 - Text Focus with Small Accent Image */
     .main-text-focus {
-      background: linear-gradient(45deg, {{ theme.primary_color }} 0%, {{ theme.accent_color }} 100%);
-      color: white;
+      background: #ffffff !important;
+      color: #2c3e50 !important;
       position: relative;
       overflow: hidden;
     }
@@ -622,22 +804,23 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(255,255,255,0.1);
-      backdrop-filter: blur(1px);
+      background: rgba(0,0,0,0.05);
+      backdrop-filter: none;
     }
     
     .main-text-focus h2 {
-      font-size: 88px;
-      margin-bottom: 80px;
+      font-size: 72px;
+      margin-bottom: 100px;
       text-align: center;
-      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+      color: #2c3e50 !important;
+      text-shadow: none;
       position: relative;
       z-index: 2;
     }
     
     .main-text-focus .focus-content {
       display: grid;
-      grid-template-columns: 1fr 700px; /* Increased from 400px to 500px for larger image container */
+      grid-template-columns: 1fr 700px;
       gap: 60px;
       max-width: 1600px;
       margin: 0 auto;
@@ -650,7 +833,8 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
       font-size: 46px;
       line-height: 1.7;
       text-align: left;
-      text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+      text-shadow: none;
+      color: #2c3e50 !important;
     }
     
     .main-text-focus .accent-image {
@@ -660,11 +844,11 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
     }
     
     .main-text-focus .accent-image img {
-      width: 480px; /* Increased from 380px to 480px */
-      height: 480px; /* Increased from 380px to 480px */
+      width: 480px;
+      height: 480px;
       object-fit: cover;
       border-radius: 50%;
-      border: 8px solid rgba(255,255,255,0.3);
+      border: 8px solid rgba(0,0,0,0.1);
       box-shadow: 0 15px 40px rgba(0,0,0,0.3);
       transition: transform 0.3s ease;
     }
@@ -674,15 +858,15 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
     }
     
     .main-text-focus .no-image-placeholder {
-      width: 480px; /* Increased from 380px to 480px */
-      height: 480px; /* Increased from 380px to 480px */
-      background: rgba(255,255,255,0.2);
+      width: 480px;
+      height: 480px;
+      background: rgba(0,0,0,0.1);
       border-radius: 50%;
-      border: 8px solid rgba(255,255,255,0.3);
+      border: 8px solid rgba(0,0,0,0.1);
       display: flex;
       align-items: center;
       justify-content: center;
-      color: rgba(255,255,255,0.8);
+      color: #666;
       font-size: 24px;
       text-align: center;
     }
@@ -702,7 +886,7 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
     .thankyou-slide p {
       font-size: 48px;
       opacity: 0.9;
-      text-align: justify; /* Justify text in thank-you slides */
+      text-align: justify;
     }
     
     /* Controls - Scaled for 16:9 */
@@ -853,8 +1037,17 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
   <div class="slides">
     {% for slide in slides %}
       {% if slide.type == 'title' %}
-        <section class="title-slide">
-          <h1>{{ slide.title }}</h1>
+        <section class="title-slide{% if not slide.image_base64 %} no-image{% endif %}">
+          {% if slide.image_base64 %}
+            <div class="title-slide-background">
+              <img src="{{ slide.image_base64 }}" alt="{{ slide.image_alt or 'Presentation background' }}" />
+            </div>
+            <div class="title-slide-overlay"></div>
+          {% endif %}
+          <div class="title-slide-content">
+            <h1>{{ slide.title }}</h1>
+            <div class="title-slide-subtitle">Educational Presentation</div>
+          </div>
         </section>
       {% elif slide.type == 'section' %}
         <section class="section-slide">

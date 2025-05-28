@@ -864,6 +864,7 @@ def generate_script(request: ScriptRequest):
 async def generate_images(request: ImageRequest):
     """
     Generate images for a previously generated script in parallel and save to database
+    Also generates a single overview image for the entire presentation
     """
     script_id = request.script_id
     use_unsplash_fallback = request.use_unsplash_fallback
@@ -878,6 +879,29 @@ async def generate_images(request: ImageRequest):
     # Prepare tasks for parallel execution
     tasks = []
     
+    # 1. Generate overview image for the entire presentation
+    overview_prompt = f"Create a professional, educational overview image representing the topic: {script_data['topic']}. The image should be suitable as a cover or title slide for an educational presentation. Use modern, clean design with relevant visual elements that capture the essence of the topic. Style: professional, educational, high-quality."
+    
+    overview_slide_info = {
+        "title": f"Overview: {script_data['topic']}",
+        "narration": f"Complete educational presentation covering {script_data['topic']}",
+        "image_prompt": overview_prompt,
+        "segment_title": "Presentation Overview",
+        "segment_summary": f"Comprehensive educational content about {script_data['topic']} structured in multiple segments"
+    }
+    
+    # Create task for overview image (using segment 0, slide 0 for overview)
+    overview_task = generate_single_image_with_fallback(
+        image_generator,
+        overview_slide_info,
+        0,  # segment_idx = 0 for overview
+        0,  # slide_idx = 0 for overview
+        script_id,
+        use_unsplash_fallback
+    )
+    tasks.append(overview_task)
+    
+    # 2. Generate images for individual slides
     for segment_idx, segment in enumerate(segments_data, 1):
         segment_title = segment.get('segment_title', f'segment_{segment_idx}')
         segment_summary = segment.get('summary', '')  # Added
@@ -901,7 +925,7 @@ async def generate_images(request: ImageRequest):
                 )
                 tasks.append(task)
     
-    print(f"Starting parallel generation of {len(tasks)} images for script {script_id}...")
+    print(f"Starting parallel generation of {len(tasks)} images (including overview) for script {script_id}...")
     start_time = asyncio.get_event_loop().time()
     
     # Execute all image generation tasks in parallel
@@ -918,13 +942,15 @@ async def generate_images(request: ImageRequest):
         "script_id": script_id,
         "topic": script_data["topic"],
         "images": {},
+        "overview_image": None,
         "stats": {
             "total_requested": len(tasks),
             "vertex_ai_success": 0,
             "unsplash_fallback": 0,
             "failed": 0,
             "errors": [],
-            "generation_time_seconds": round(end_time - start_time, 2)
+            "generation_time_seconds": round(end_time - start_time, 2),
+            "overview_generated": False
         }
     }
     
@@ -935,6 +961,21 @@ async def generate_images(request: ImageRequest):
             continue
             
         slide_key = result["slide_key"]
+        
+        # Check if this is the overview image
+        if slide_key == "segment_0_slide_0":
+            image_results["overview_image"] = {
+                "slide_key": slide_key,
+                "segment_title": result["segment_title"],
+                "segment_summary": result["segment_summary"],
+                "slide_title": result["slide_title"],
+                "slide_narration": result["slide_narration"],
+                "image_prompt": result["image_prompt"],
+                "image_path": result["image_path"],
+                "unsplash_url": result["unsplash_url"],
+                "source": result["source"]
+            }
+            image_results["stats"]["overview_generated"] = result["source"] != "failed"
         
         # Update statistics
         if result["source"] == "vertex_ai":
@@ -959,10 +1000,10 @@ async def generate_images(request: ImageRequest):
         }
         image_results["images"][slide_key] = image_data
     
-    # Save images to database
+    # Save images to database (including overview)
     if image_results["images"]:
         if save_images_to_db(script_id, image_results["images"]):
-            print(f"Successfully saved {len(image_results['images'])} image records to database")
+            print(f"Successfully saved {len(image_results['images'])} image records (including overview) to database")
         else:
             image_results["warning"] = "Images generated but failed to save to database"
     
@@ -1045,11 +1086,11 @@ def get_generation_status(script_id: str):
     }
 
 
-# @app.get("/presentation/{script_id}/html")
+@app.get("/presentation/{script_id}/html")
 def generate_presentation_html(script_id: str):
     """
-    Generate a complete standalone HTML file for the presentation
-    Returns the HTML content as a string that can be saved to a file
+    Generate a complete standalone HTML file for the presentation and save it to disk
+    Returns the file for download
     """
     # Get script data
     script_data = get_script_from_db(script_id)
@@ -1063,11 +1104,34 @@ def generate_presentation_html(script_id: str):
     slides = []
     
     # 1. Title Slide
-    slides.append({
+    title_slide = {
         "type": "title",
         "title": script_data["topic"],
         "order": 1
-    })
+    }
+
+    overview_key = "segment_0_slide_0"
+    if overview_key in images_data:
+        overview_image_info = images_data[overview_key]
+        if overview_image_info.get('image_path') and os.path.exists(overview_image_info['image_path']):
+            try:
+                with open(overview_image_info['image_path'], 'rb') as img_file:
+                    image_data = img_file.read()
+                    # Determine file extension for MIME type
+                    file_ext = Path(overview_image_info['image_path']).suffix.lower()
+                    mime_type = "image/jpeg" if file_ext in ['.jpg', '.jpeg'] else "image/png"
+                    image_base64 = f"data:{mime_type};base64,{base64.b64encode(image_data).decode()}"
+                    
+                    title_slide["image_base64"] = image_base64
+                    title_slide["image_alt"] = overview_image_info.get('image_prompt', f'Overview of {script_data["topic"]}')
+                    
+                    print(f"Successfully added overview image to title slide: {overview_image_info['image_path']}")
+            except Exception as e:
+                print(f"Error encoding overview image for title slide: {e}")
+    else:
+        print(f"Overview image not found in images_data. Available keys: {list(images_data.keys())}")
+    
+    slides.append(title_slide)
     
     # 2-6. Process 5 Segments (Section + 4 Main slides each)
     segments_data = script_data["parsed_script"]
@@ -1661,24 +1725,24 @@ async def generate_presentation_pdf(script_id: str):
         raise HTTPException(status_code=404, detail="Script not found")
     
     # Check if PDF already exists
-    existing_presentation = get_presentation_from_db(script_id)
-    if existing_presentation and os.path.exists(existing_presentation["pdf_path"]):
-        # Check if images have already been generated
-        if not existing_presentation.get("pdf_images_path") or not os.path.exists(existing_presentation.get("pdf_images_path", "")):
-            # Generate images from existing PDF
-            print("PDF exists but images missing. Converting PDF to images...")
-            conversion_result = convert_pdf_to_images(script_id, existing_presentation["pdf_path"])
+    # existing_presentation = get_presentation_from_db(script_id)
+    # if existing_presentation and os.path.exists(existing_presentation["pdf_path"]):
+    #     # Check if images have already been generated
+    #     if not existing_presentation.get("pdf_images_path") or not os.path.exists(existing_presentation.get("pdf_images_path", "")):
+    #         # Generate images from existing PDF
+    #         print("PDF exists but images missing. Converting PDF to images...")
+    #         conversion_result = convert_pdf_to_images(script_id, existing_presentation["pdf_path"])
             
-            if conversion_result["errors"]:
-                print(f"Warning: PDF to image conversion had errors: {conversion_result['errors']}")
+    #         if conversion_result["errors"]:
+    #             print(f"Warning: PDF to image conversion had errors: {conversion_result['errors']}")
         
-        # Return existing PDF
-        return FileResponse(
-            path=existing_presentation["pdf_path"],
-            media_type="application/pdf",
-            filename=existing_presentation["filename"],
-            headers={"Content-Disposition": f"attachment; filename={existing_presentation['filename']}"}
-        )
+    #     # Return existing PDF
+    #     return FileResponse(
+    #         path=existing_presentation["pdf_path"],
+    #         media_type="application/pdf",
+    #         filename=existing_presentation["filename"],
+    #         headers={"Content-Disposition": f"attachment; filename={existing_presentation['filename']}"}
+    #     )
     
     # Get the HTML content from the existing endpoint logic
     html_result = generate_presentation_html(script_id)
