@@ -795,13 +795,14 @@ def generate_script(request: ScriptRequest):
     The total narration for the entire video should be approximately 5 minutes.
 
     For each of the 5 segments:
-    - The total narration for the segment should be approximately 1 minute (around 200 words).
+    - The total narration for the segment should be approximately 1 minute (around 150 words).
     - Provide a segment title.
     - Provide a short summary of the segment.
     - Divide the segment into 4 slides.
         For each of the 4 slides:
         - Provide a short title (max 5 words).
-        - Write a narration script of approximately 50 words (so that 4 slides total ~200 words for the segment).
+        - Write a narration script of approximately 30 words (so that 4 slides total ~150 words for the segment).
+        - Generate multiple shorter sentences instead of paragraphs.
         - Suggest a visual description (image prompt for an AI image generator or Unsplash search). Make sure the prompt is not very complex and easy to understand by text to image models.
 
     Format the output cleanly, following this structure for each segment:
@@ -810,19 +811,19 @@ def generate_script(request: ScriptRequest):
     Summary: [Segment Summary Here]
     Slide 1:
     Title: [Slide 1 Title]
-    Narration: [Slide 1 Narration - approx 50 words]
+    Narration: [Slide 1 Narration - approx 30 words]
     Image prompt: [Slide 1 Image Prompt]
     Slide 2:
     Title: [Slide 2 Title]
-    Narration: [Slide 2 Narration - approx 50 words]
+    Narration: [Slide 2 Narration - approx 30 words]
     Image prompt: [Slide 2 Image Prompt]
     Slide 3:
     Title: [Slide 3 Title]
-    Narration: [Slide 3 Narration - approx 50 words]
+    Narration: [Slide 3 Narration - approx 30 words]
     Image prompt: [Slide 3 Image Prompt]
     Slide 4:
     Title: [Slide 4 Title]
-    Narration: [Slide 4 Narration - approx 50 words]
+    Narration: [Slide 4 Narration - approx 30 words]
     Image prompt: [Slide 4 Image Prompt]
 
     Ensure this structure is repeated for all 5 segments.
@@ -1071,6 +1072,9 @@ def generate_presentation_html(script_id: str):
     # 2-6. Process 5 Segments (Section + 4 Main slides each)
     segments_data = script_data["parsed_script"]
     slide_order = 2
+
+    main_slide_layouts = ["main", "main-image-dominant", "main-image-dominant-2", "main-text-focus"]
+    layout_index = 0    
     
     for segment_idx, segment in enumerate(segments_data, 1):
         segment_title = segment.get('segment_title', f'Segment {segment_idx}')
@@ -1102,9 +1106,12 @@ def generate_presentation_html(script_id: str):
                         image_base64 = f"data:{mime_type};base64,{base64.b64encode(image_data).decode()}"
                 except Exception as e:
                     print(f"Error encoding image {image_info['image_path']}: {e}")
+
+            chosen_layout = main_slide_layouts[layout_index % len(main_slide_layouts)]
+            layout_index += 1
             
             slides.append({
-                "type": "main",
+                "type": chosen_layout,
                 "title": slide.get('title', f'Slide {slide_idx}'),
                 "body": slide.get('narration', ''),
                 "image_base64": image_base64,

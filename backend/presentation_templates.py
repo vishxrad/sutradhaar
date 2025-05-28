@@ -2,116 +2,95 @@ from jinja2 import Template
 import os
 from app import *
 def get_theme_colors(images_data: dict) -> dict:
-    """Extract theme colors from the first available image with enhanced methods"""
+    """Extract theme colors from all available images using K-means clustering"""
     try:
-        # Find first available image
-        first_image_path = None
+        all_pixels = []
+        processed_images = 0
+        
+        # Collect pixels from all available images
         for image_info in images_data.values():
             if image_info.get('image_path') and os.path.exists(image_info['image_path']):
-                first_image_path = image_info['image_path']
-                break
-        
-        if first_image_path:
-            # Method 1: ColorThief with better quality settings
-            try:
-                from colorthief import ColorThief
-                color_thief = ColorThief(first_image_path)
-                
-                # Get dominant color with high quality
-                dominant_color = color_thief.get_color(quality=1)
-                
-                # Get color palette for better color selection
-                palette = color_thief.get_palette(color_count=6, quality=1)
-                
-                # Select the most vibrant color from palette
-                best_color = select_best_color(palette)
-                if best_color:
-                    dominant_color = best_color
+                pixels = extract_pixels_from_image(image_info['image_path'])
+                if pixels:
+                    all_pixels.extend(pixels)
+                    processed_images += 1
                     
-            except Exception as e:
-                print(f"ColorThief failed: {e}")
-                # Fallback to PIL-based extraction
-                dominant_color = extract_color_with_pil(first_image_path)
+                # Limit to prevent memory issues - sample from first 10 images
+                if processed_images >= 10:
+                    break
+        
+        if all_pixels:
+            print(f"Processed {processed_images} images with {len(all_pixels)} total pixels")
+            
+            # Use K-means clustering on all collected pixels
+            dominant_color = find_dominant_color_kmeans(all_pixels, k=8)  # More clusters for better variety
             
             if dominant_color:
                 r, g, b = dominant_color
-                
-                # Enhanced color processing
                 return generate_color_scheme(r, g, b)
                 
     except Exception as e:
-        print(f"Error generating theme: {e}")
+        print(f"Error generating theme from all images: {e}")
     
-    # Default theme
+    # Fallback to default theme
     return get_default_theme()
 
-def select_best_color(palette):
-    """Select the most vibrant and suitable color from palette"""
-    best_color = None
-    best_score = 0
-    
-    for color in palette:
-        r, g, b = color
-        
-        # Calculate color vibrancy (saturation + brightness)
-        max_val = max(r, g, b)
-        min_val = min(r, g, b)
-        saturation = (max_val - min_val) / max_val if max_val > 0 else 0
-        brightness = (r + g + b) / 3
-        
-        # Avoid very dark or very light colors
-        if brightness < 50 or brightness > 200:
-            continue
-            
-        # Calculate score (higher is better)
-        score = saturation * 100 + brightness * 0.5
-        
-        if score > best_score:
-            best_score = score
-            best_color = color
-    
-    return best_color
-
-def extract_color_with_pil(image_path):
-    """Fallback color extraction using PIL"""
+def extract_pixels_from_image(image_path, max_pixels=1000):
+    """Extract a sample of pixels from a single image"""
     try:
         from PIL import Image
         import numpy as np
         
-        # Open and resize image for faster processing
         with Image.open(image_path) as img:
             img = img.convert('RGB')
-            img = img.resize((150, 150))  # Smaller size for faster processing
+            
+            # Resize for faster processing while maintaining aspect ratio
+            img.thumbnail((100, 100), Image.Resampling.LANCZOS)
             
             # Convert to numpy array
             img_array = np.array(img)
-            
-            # Reshape to list of pixels
             pixels = img_array.reshape(-1, 3)
             
-            # Remove very dark and very light pixels
+            # Filter out very dark and very light pixels
             filtered_pixels = []
             for pixel in pixels:
-                brightness = sum(pixel) / 3
-                if 30 < brightness < 225:  # Filter out too dark/light pixels
-                    filtered_pixels.append(pixel)
+                r, g, b = pixel
+                brightness = (r + g + b) / 3
+                
+                # Skip nearly black/white pixels and very unsaturated pixels
+                if 30 < brightness < 225:
+                    max_val = max(r, g, b)
+                    min_val = min(r, g, b)
+                    saturation = (max_val - min_val) / max_val if max_val > 0 else 0
+                    
+                    # Only keep pixels with some color saturation
+                    if saturation > 0.2:
+                        filtered_pixels.append(pixel)
             
-            if filtered_pixels:
-                # Find most common color using simple clustering
-                return find_dominant_color_kmeans(filtered_pixels)
+            # Sample random pixels if we have too many
+            if len(filtered_pixels) > max_pixels:
+                import random
+                filtered_pixels = random.sample(filtered_pixels, max_pixels)
+            
+            return filtered_pixels
             
     except Exception as e:
-        print(f"PIL extraction failed: {e}")
-        
-    return None
+        print(f"Error extracting pixels from {image_path}: {e}")
+        return []
 
-def find_dominant_color_kmeans(pixels, k=5):
-    """Use K-means clustering to find dominant color"""
+def find_dominant_color_kmeans(pixels, k=8):
+    """Use K-means clustering to find dominant color from all pixels"""
     try:
         from sklearn.cluster import KMeans
         import numpy as np
         
+        if len(pixels) < k:
+            # Not enough pixels, fall back to simple average
+            pixels = np.array(pixels)
+            return tuple(map(int, np.mean(pixels, axis=0)))
+        
         pixels = np.array(pixels)
+        print(f"Running K-means on {len(pixels)} pixels with {k} clusters")
         
         # Perform K-means clustering
         kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
@@ -124,24 +103,52 @@ def find_dominant_color_kmeans(pixels, k=5):
         labels = kmeans.labels_
         label_counts = np.bincount(labels)
         
-        # Select color from largest cluster that's not too dark/light
-        for i in np.argsort(label_counts)[::-1]:  # Sort by cluster size
-            color = colors[i]
-            brightness = sum(color) / 3
-            if 50 < brightness < 200:  # Good brightness range
-                return tuple(map(int, color))
-                
-        # Fallback to largest cluster
+        # Score each color based on cluster size, vibrancy, and brightness
+        best_color = None
+        best_score = 0
+        
+        for i, color in enumerate(colors):
+            r, g, b = color
+            cluster_size = label_counts[i]
+            
+            # Calculate color properties
+            brightness = (r + g + b) / 3
+            max_val = max(r, g, b)
+            min_val = min(r, g, b)
+            saturation = (max_val - min_val) / max_val if max_val > 0 else 0
+            
+            # Skip colors that are too dark, too light, or too unsaturated
+            if brightness < 50 or brightness > 200 or saturation < 0.3:
+                continue
+            
+            # Score: cluster size + vibrancy + good brightness range
+            brightness_score = 100 - abs(brightness - 125)  # Prefer mid-range brightness
+            vibrancy_score = saturation * 100
+            size_score = (cluster_size / len(pixels)) * 50
+            
+            total_score = size_score + vibrancy_score + brightness_score
+            
+            if total_score > best_score:
+                best_score = total_score
+                best_color = tuple(map(int, color))
+        
+        if best_color:
+            print(f"Selected color: rgb{best_color} with score: {best_score:.2f}")
+            return best_color
+            
+        # Fallback to largest cluster if no good color found
         dominant_idx = np.argmax(label_counts)
-        return tuple(map(int, colors[dominant_idx]))
+        fallback_color = tuple(map(int, colors[dominant_idx]))
+        print(f"Using fallback color: rgb{fallback_color}")
+        return fallback_color
         
     except ImportError:
         print("scikit-learn not available, using simple average")
-        # Simple fallback: average of all pixels
+        import numpy as np
         pixels = np.array(pixels)
         return tuple(map(int, np.mean(pixels, axis=0)))
     except Exception as e:
-        print(f"K-means failed: {e}")
+        print(f"K-means clustering failed: {e}")
         return None
 
 def generate_color_scheme(r, g, b):
@@ -205,13 +212,33 @@ def get_default_theme():
         "primary_color": "rgb(74, 144, 226)",
         "primary_hex": "#4a90e2",
         "background_color": "rgba(74, 144, 226, 0.15)",
+        "main_slide_bg": "rgba(74, 144, 226, 0.08)",  # Added missing property
         "text_color": "white",
         "accent_color": "rgb(124, 194, 255)",
         "secondary_color": "rgb(44, 114, 196)",
         "light_accent": "rgba(124, 194, 255, 0.3)"
     }
+def format_text_as_bullets(text: str) -> str:
+    """Convert text into HTML bullet points with spacing"""
+    if not text:
+        return ""
+    
+    # Split by sentences (basic approach)
+    sentences = [s.strip() for s in text.split('.') if s.strip()]
+    
+    if len(sentences) <= 1:
+        # If only one sentence or less, return as single bullet
+        return f"<ul><li>{text}</li></ul>"
+    
+    # Create bullet points for multiple sentences with spacing
+    bullets = "".join([f"<li style='margin-bottom: 20px;'>{sentence.strip()}.</li>" for sentence in sentences if sentence.strip()])
+    return f"<ul style='margin-top: 0; margin-bottom: 0;'>{bullets}</ul>"
+
 def generate_html_template(topic: str, slides: list, theme: dict, script_id: str) -> str:
     """Generate the complete HTML presentation with 16:9 aspect ratio"""
+    
+    # Add the format_text_as_bullets function to Jinja2 filters
+    from jinja2 import Environment, BaseLoader
     
     template_str = """<!DOCTYPE html>
 <html lang="en">
@@ -307,7 +334,7 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
       text-align: justify; /* Justify text in section slides */
     }
     
-    /* Main Slide - 16:9 optimized */
+    /* Main Slide Layout 1 - Original (Text left, Image right) */
     .main-slide {
       background: linear-gradient(135deg, {{ theme.main_slide_bg }} 0%, rgba(255,255,255,0.98) 100%);
       color: #2c3e50;
@@ -335,7 +362,7 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
     .main-slide-text {
       font-size: 42px;
       line-height: 1.7;
-      text-align: justify; /* Justify text in main slides */
+      text-align: justify;
     }
     
     .main-slide-image {
@@ -367,6 +394,296 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
       justify-content: center;
       color: #666;
       font-size: 32px;
+      text-align: center;
+    }
+
+    /* Layout 2 - Image Dominant Left (70% image, 30% text) */
+    .main-image-dominant {
+      background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, {{ theme.main_slide_bg }} 100%);
+      color: #2c3e50;
+    }
+    
+    .main-image-dominant h2 {
+      font-size: 72px;
+      margin-bottom: 50px;
+      text-align: center;
+      color: {{ theme.primary_color }};
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+    }
+    
+    .main-image-dominant .content-container {
+      display: grid;
+      grid-template-columns: 70% 30%;
+      gap: 60px;
+      max-width: 1700px;
+      margin: 0 auto;
+      height: 100%;
+      align-items: center;
+    }
+    
+    .main-image-dominant .image-section {
+      position: relative;
+      height: 600px;
+      overflow: hidden;
+      border-radius: 25px;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.2);
+    }
+    
+    .main-image-dominant .image-section img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.4s ease;
+    }
+    
+    .main-image-dominant .image-section:hover img {
+      transform: scale(1.03);
+    }
+    
+    .main-image-dominant .text-section {
+      padding: 40px 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    
+    .main-image-dominant .text-section p {
+      font-size: 38px;
+      line-height: 1.6;
+      text-align: left;
+      color: #34495e;
+    }
+    
+    .main-image-dominant .no-image-placeholder {
+      width: 100%;
+      height: 600px;
+      background: linear-gradient(135deg, #e0e0e0, #f5f5f5);
+      border-radius: 25px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #888;
+      font-size: 36px;
+    }
+
+    /* Layout 2B - Image Dominant Right (30% text, 70% image) */
+    .main-image-dominant-2 {
+      background: linear-gradient(135deg, {{ theme.main_slide_bg }} 0%, rgba(255,255,255,0.95) 100%);
+      color: #2c3e50;
+    }
+    
+    .main-image-dominant-2 h2 {
+      font-size: 72px;
+      margin-bottom: 50px;
+      text-align: center;
+      color: {{ theme.primary_color }};
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+    }
+    
+    .main-image-dominant-2 .content-container {
+      display: grid;
+      grid-template-columns: 30% 70%;
+      gap: 60px;
+      max-width: 1700px;
+      margin: 0 auto;
+      height: 100%;
+      align-items: center;
+    }
+    
+    .main-image-dominant-2 .text-section {
+      padding: 40px 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    
+    .main-image-dominant-2 .text-section p {
+      font-size: 38px;
+      line-height: 1.6;
+      text-align: right;
+      color: #34495e;
+    }
+    
+    .main-image-dominant-2 .image-section {
+      position: relative;
+      height: 600px;
+      overflow: hidden;
+      border-radius: 25px;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.2);
+    }
+    
+    .main-image-dominant-2 .image-section img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.4s ease;
+    }
+    
+    .main-image-dominant-2 .image-section:hover img {
+      transform: scale(1.03);
+    }
+    
+    .main-image-dominant-2 .no-image-placeholder {
+      width: 100%;
+      height: 600px;
+      background: linear-gradient(135deg, #e0e0e0, #f5f5f5);
+      border-radius: 25px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #888;
+      font-size: 36px;
+    }
+
+    /* Layout 3 - Image Top Full Width */
+    .main-image-top {
+      background: #ffffff;
+      color: #2c3e50;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: flex-start !important;
+      padding: 0 !important;
+    }
+    
+    .main-image-top h2 {
+      font-size: 76px;
+      margin: 50px 60px 40px 60px;
+      text-align: center;
+      color: {{ theme.primary_color }};
+      background: rgba(255,255,255,0.9);
+      padding: 20px;
+      border-radius: 15px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    }
+    
+    .main-image-top .top-image-container {
+      width: 100%;
+      height: 500px;
+      overflow: hidden;
+      position: relative;
+    }
+    
+    .main-image-top .top-image-container img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      filter: brightness(0.9);
+    }
+    
+    .main-image-top .top-image-container::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 100px;
+      background: linear-gradient(transparent, rgba(255,255,255,0.3));
+    }
+    
+    .main-image-top .bottom-text-container {
+      flex: 1;
+      padding: 50px 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, {{ theme.main_slide_bg }}, rgba(255,255,255,0.98));
+    }
+    
+    .main-image-top .bottom-text-container p {
+      font-size: 40px;
+      line-height: 1.65;
+      text-align: justify;
+      max-width: 1400px;
+      color: #34495e;
+    }
+    
+    .main-image-top .no-image-placeholder {
+      height: 500px;
+      background: linear-gradient(135deg, #e8f4f8, #d1ecf1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #7f8c8d;
+      font-size: 32px;
+    }
+
+    /* Layout 4 - Text Focus with Small Accent Image */
+    .main-text-focus {
+      background: linear-gradient(45deg, {{ theme.primary_color }} 0%, {{ theme.accent_color }} 100%);
+      color: white;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .main-text-focus::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(255,255,255,0.1);
+      backdrop-filter: blur(1px);
+    }
+    
+    .main-text-focus h2 {
+      font-size: 88px;
+      margin-bottom: 80px;
+      text-align: center;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+      position: relative;
+      z-index: 2;
+    }
+    
+    .main-text-focus .focus-content {
+      display: grid;
+      grid-template-columns: 1fr 700px; /* Increased from 400px to 500px for larger image container */
+      gap: 60px;
+      max-width: 1600px;
+      margin: 0 auto;
+      align-items: center;
+      position: relative;
+      z-index: 2;
+    }
+    
+    .main-text-focus .main-text {
+      font-size: 46px;
+      line-height: 1.7;
+      text-align: left;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+    }
+    
+    .main-text-focus .accent-image {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    
+    .main-text-focus .accent-image img {
+      width: 480px; /* Increased from 380px to 480px */
+      height: 480px; /* Increased from 380px to 480px */
+      object-fit: cover;
+      border-radius: 50%;
+      border: 8px solid rgba(255,255,255,0.3);
+      box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+      transition: transform 0.3s ease;
+    }
+    
+    .main-text-focus .accent-image img:hover {
+      transform: scale(1.1) rotate(5deg);
+    }
+    
+    .main-text-focus .no-image-placeholder {
+      width: 480px; /* Increased from 380px to 480px */
+      height: 480px; /* Increased from 380px to 480px */
+      background: rgba(255,255,255,0.2);
+      border-radius: 50%;
+      border: 8px solid rgba(255,255,255,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255,255,255,0.8);
+      font-size: 24px;
       text-align: center;
     }
     
@@ -549,15 +866,75 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
           <h2>{{ slide.title }}</h2>
           <div class="main-slide-content">
             <div class="main-slide-text">
-              <p>{{ slide.body }}</p>
+              {{ slide.body | format_bullets | safe }}
             </div>
             <div class="main-slide-image">
               {% if slide.image_base64 %}
                 <img src="{{ slide.image_base64 }}" alt="{{ slide.image_alt }}" />
               {% else %}
-                <div class="no-image-placeholder">
-                  No Image Available
-                </div>
+                <div class="no-image-placeholder">No Image Available</div>
+              {% endif %}
+            </div>
+          </div>
+        </section>
+      {% elif slide.type == 'main-image-dominant' %}
+        <section class="main-image-dominant">
+          <h2>{{ slide.title }}</h2>
+          <div class="content-container">
+            <div class="image-section">
+              {% if slide.image_base64 %}
+                <img src="{{ slide.image_base64 }}" alt="{{ slide.image_alt }}" />
+              {% else %}
+                <div class="no-image-placeholder">No Image Available</div>
+              {% endif %}
+            </div>
+            <div class="text-section">
+              {{ slide.body | format_bullets | safe }}
+            </div>
+          </div>
+        </section>
+      {% elif slide.type == 'main-image-dominant-2' %}
+        <section class="main-image-dominant-2">
+          <h2>{{ slide.title }}</h2>
+          <div class="content-container">
+            <div class="text-section">
+              {{ slide.body | format_bullets | safe }}
+            </div>
+            <div class="image-section">
+              {% if slide.image_base64 %}
+                <img src="{{ slide.image_base64 }}" alt="{{ slide.image_alt }}" />
+              {% else %}
+                <div class="no-image-placeholder">No Image Available</div>
+              {% endif %}
+            </div>
+          </div>
+        </section>
+      {% elif slide.type == 'main-image-top' %}
+        <section class="main-image-top">
+          <div class="top-image-container">
+            {% if slide.image_base64 %}
+              <img src="{{ slide.image_base64 }}" alt="{{ slide.image_alt }}" />
+            {% else %}
+              <div class="no-image-placeholder">No Image Available</div>
+            {% endif %}
+          </div>
+          <h2>{{ slide.title }}</h2>
+          <div class="bottom-text-container">
+            {{ slide.body | format_bullets | safe }}
+          </div>
+        </section>
+      {% elif slide.type == 'main-text-focus' %}
+        <section class="main-text-focus">
+          <h2>{{ slide.title }}</h2>
+          <div class="focus-content">
+            <div class="main-text">
+              {{ slide.body | format_bullets | safe }}
+            </div>
+            <div class="accent-image">
+              {% if slide.image_base64 %}
+                <img src="{{ slide.image_base64 }}" alt="{{ slide.image_alt }}" />
+              {% else %}
+                <div class="no-image-placeholder">No Image Available</div>
               {% endif %}
             </div>
           </div>
@@ -613,5 +990,9 @@ updateScale();
 </body>
 </html>"""
 
-    template = Template(template_str)
+    # Create Jinja2 environment with custom filter
+    env = Environment(loader=BaseLoader())
+    env.filters['format_bullets'] = format_text_as_bullets
+    template = env.from_string(template_str)
+    
     return template.render(topic=topic, slides=slides, theme=theme, script_id=script_id)
