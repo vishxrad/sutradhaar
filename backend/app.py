@@ -880,7 +880,7 @@ async def generate_images(request: ImageRequest):
     tasks = []
     
     # 1. Generate overview image for the entire presentation
-    overview_prompt = f"Create a professional, educational overview image representing the topic: {script_data['topic']}. The image should be suitable as a cover or title slide for an educational presentation. Use modern, clean design with relevant visual elements that capture the essence of the topic. Style: professional, educational, high-quality."
+    overview_prompt = f"Create a professional, educational overview image representing the topic: {script_data['topic']}. The image should be suitable as a cover or title slide for an educational presentation. Use modern, clean design with relevant visual elements that capture the essence of the topic. Style: professional, educational, high-quality. Make sure the image does not contain any text."
     
     overview_slide_info = {
         "title": f"Overview: {script_data['topic']}",
@@ -1304,7 +1304,7 @@ def synthesize_text_sync(text: str, speaker: str, output_path: str) -> bool:
         else:  # female (default)
             voice = texttospeech.VoiceSelectionParams(
                 language_code="en-IN",
-                name="en-IN-Wavenet-D",  # Female voice
+                name="en-IN-Wavenet-E",  # Female voice
             )
         
         # Configure audio output

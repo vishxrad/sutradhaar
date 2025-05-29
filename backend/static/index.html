@@ -35,12 +35,55 @@
             border-radius: 0.375rem; /* rounded-md */
             overflow: hidden;
             margin-bottom: 1.5rem; /* mb-6 */
+            position: relative;
         }
         .progress-bar {
             height: 0.75rem; /* h-3 */
             background-color: #3b82f6; /* Tailwind blue-500 */
             width: 0%;
             transition: width 0.3s ease-out;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .progress-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+            animation: shimmer 1.5s infinite;
+        }
+        
+        .progress-percentage {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #374151;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 2px 6px;
+            border-radius: 4px;
+            min-width: 40px;
+            text-align: center;
+        }
+        
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(200%); }
+        }
+        
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 5px rgba(59, 130, 246, 0.3); }
+            50% { box-shadow: 0 0 15px rgba(59, 130, 246, 0.6); }
+        }
+        
+        .progress-bar.loading {
+            animation: pulse-glow 2s infinite;
         }
         
         .blur-background {
@@ -151,7 +194,7 @@
 <br>
 <div class="relative w-[80%] h-[800px] mx-auto mt-8 rounded-xl overflow-hidden shadow-xl border-4 border-transparent bg-clip-padding ">
   <div class="w-full h-full bg-black rounded-lg overflow-hidden">
-    <video id="myVideo" src="/generated_final_videos/script_1748272000/final_presentation.mp4" controls autoplay muted class="w-full h-full object-cover"></video>
+    <video id="myVideo" src="generated_final_videos/script_1748465992/final_presentation_script_1748465992.mp4"  controls autoplay muted class="w-full h-full object-cover"></video>
     
     <!-- Listen Button Overlay -->
     <button 
@@ -311,6 +354,7 @@ function toggleMute() {
                     <!-- Overall Progress Bar -->
                     <div class="progress-bar-container">
                         <div id="overallProgressBar" class="progress-bar"></div>
+                        <div id="progressPercentage" class="progress-percentage">0%</div>
                     </div>
 
                     <div class="space-y-4">
@@ -418,7 +462,7 @@ function toggleMute() {
         const greetings = [
             "Transform Text to Video", "पाठ को वीडियो में बदलें", "Trasforma il testo in video", 
             "转文本为视频", "حوّل النص إلى فيديو", "Transformez le texte en vidéo",
-            "ಪಠ್ಯವನ್ನು ವೀಡಿಯೋಗೆ ಪरಿವರ್ತನೆ ಮಾಡಿ", "Chuyển đổi văn bản thành video", "पाठलाई भिडियामा रूपान्तरण गर्नुहोस्",
+            "ಪಠ್ಯವನ್ನು ವೀಡಿಯೋಗೆ ಪರಿವರ್ತನೆ ಮಾಡಿ", "Chuyển đổi văn bản thành video", "पाठलाई भिडियामा रूपान्तरण गर्नुहोस्",
             "ലേഖനം വിഡിയോയുടെ രൂപത്തിലേക്ക് പരിവർത്തനം ചെയ്യുക", "मजकूराचें व्हिडियोंत रुपांतर करप", "पाठ के वीडियो में रूपांतरित करू",
             "Преобразовать текст в видео"
         ];
@@ -481,7 +525,8 @@ function toggleMute() {
                 currentScriptId = scriptData.script_id;
                 updateStatus('scriptStatus', 'success', 'Script generated successfully!');
                 updateProgressBar(20); // Progress after script
-                
+                addMicroProgress(20, 8); // Add small increments during image generation
+
                 let parsedScriptForPreview = scriptData.parsed_script;
                 if (typeof parsedScriptForPreview === 'string') {
                     try {
@@ -512,6 +557,7 @@ function toggleMute() {
                 const imagesData = await imagesRes.json();
                 updateStatus('imagesStatus', 'success', `Images generated! (${imagesData.stats.vertex_ai_success || 0} AI + ${imagesData.stats.unsplash_fallback || 0} stock)`);
                 updateProgressBar(40); // Progress after images
+                addMicroProgress(40, 8); // Add small increments during audio generation
 
                 // Step 3: Generate Audio
                 updateStatus('audioStatus', 'loading', 'Generating audio narrations...');
@@ -524,6 +570,7 @@ function toggleMute() {
                 const audioData = await audioRes.json();
                 updateStatus('audioStatus', 'success', `Audio generated! (${audioData.stats.successful || 0} files)`);
                 updateProgressBar(60); // Progress after audio
+                addMicroProgress(60, 5); // Add small increments during PDF generation
 
                 // Step 4: Generate PDF and show immediate download
                 updateStatus('pdfStatus', 'loading', 'Creating PDF presentation...');
@@ -570,6 +617,7 @@ function toggleMute() {
                 }
                 updateStatus('videoChunksStatus', 'success', `Chunks created: ${videoChunksData.chunks_successfully_generated}`);
                 updateProgressBar(90); // Progress after video chunks
+                addMicroProgress(90, 5); // Add small increments during video combining
 
                 // Step 6: Combine Chunks
                 updateStatus('combineVideoStatus', 'loading', 'Combining video...');
@@ -616,53 +664,93 @@ function toggleMute() {
             }
         }
         
+        let progressAnimationInterval = null;
+        let currentProgress = 0;
+        let targetProgress = 0;
+
         function updateProgressBar(percentage, isError = false) {
             const progressBar = document.getElementById('overallProgressBar');
-            if (progressBar) {
-                progressBar.style.width = `${percentage}%`;
+            const progressText = document.getElementById('progressPercentage');
+            
+            if (progressBar && progressText) {
+                // Ensure percentage never exceeds 100%
+                targetProgress = Math.min(percentage, 100);
+                
+                // Clear any existing animation
+                if (progressAnimationInterval) {
+                    clearInterval(progressAnimationInterval);
+                }
+                
+                // Add loading animation class
+                if (targetProgress < 100 && !isError) {
+                    progressBar.classList.add('loading');
+                } else {
+                    progressBar.classList.remove('loading');
+                }
+                
+                // Animate progress smoothly
+                progressAnimationInterval = setInterval(() => {
+                    if (currentProgress < targetProgress) {
+                        currentProgress += 0.5; // Smooth increment
+                        if (currentProgress > targetProgress) {
+                            currentProgress = targetProgress;
+                        }
+                    } else if (currentProgress > targetProgress) {
+                        currentProgress -= 0.5;
+                        if (currentProgress < targetProgress) {
+                            currentProgress = targetProgress;
+                        }
+                    }
+                    
+                    // Ensure current progress never exceeds 100%
+                    currentProgress = Math.min(currentProgress, 100);
+                    
+                    progressBar.style.width = `${currentProgress}%`;
+                    progressText.textContent = `${Math.round(currentProgress)}%`;
+                    
+                    // Stop animation when target is reached
+                    if (currentProgress === targetProgress) {
+                        clearInterval(progressAnimationInterval);
+                        progressAnimationInterval = null;
+                        
+                        // Remove loading animation when complete or error
+                        if (currentProgress === 100 || isError) {
+                            progressBar.classList.remove('loading');
+                        }
+                    }
+                }, 16); // ~60fps for smooth animation
+                
+                // Set colors based on state
                 if (isError) {
                     progressBar.style.backgroundColor = '#ef4444'; // Tailwind red-500
-                } else if (percentage === 100) {
+                } else if (currentProgress === 100) {
                     progressBar.style.backgroundColor = '#10b981'; // Tailwind green-500
-                }
-                else {
+                } else {
                     progressBar.style.backgroundColor = '#3b82f6'; // Tailwind blue-500 (default)
                 }
             }
         }
 
+        // Add micro-animations during long processes
+        function addMicroProgress(baseProgress, maxIncrement = 5) {
+            // Ensure we don't exceed safe limits
+            const safeLimit = Math.min(baseProgress + maxIncrement, 95);
+            if (currentProgress < safeLimit) {
+                setTimeout(() => {
+                    const nextProgress = Math.min(currentProgress + 1, safeLimit);
+                    updateProgressBar(nextProgress);
+                    if (Math.random() > 0.7 && currentProgress < safeLimit - 1) { // 30% chance to add another micro increment
+                        setTimeout(() => addMicroProgress(baseProgress, maxIncrement), 2000 + Math.random() * 3000);
+                    }
+                }, 1000 + Math.random() * 2000);
+            }
+        }
+
         function typewriterEffect(element, text, speed = 30) { // Default speed 30ms per word
             return new Promise(resolve => {
-                let i = 0;
-                const words = text.trim().split(/\s+/).filter(word => word.length > 0); // Split by words, filter empty
-
-                element.innerHTML = ''; // Clear content for typing visual effect
-
-                function type() {
-                    if (i < words.length) {
-                        element.innerHTML += (i > 0 ? ' ' : '') + words[i];
-                        i++;
-                        setTimeout(type, speed);
-                        const scriptContentDiv = document.getElementById('scriptContent');
-                        // Efficient scroll: only scroll if the element being typed into is the last child or its parent is last
-                        if (element.isSameNode(scriptContentDiv.lastChild) || element.parentElement.isSameNode(scriptContentDiv.lastChild)) {
-                           scriptContentDiv.scrollTop = scriptContentDiv.scrollHeight;
-                        } else if (element.parentElement && element.parentElement.isSameNode(scriptContentDiv.lastChild.lastChild)) {
-                            // For notes inside the last slide div
-                            scriptContentDiv.scrollTop = scriptContentDiv.scrollHeight;
-                        }
-
-                    } else {
-                        resolve(); 
-                    }
-                }
-                
-                if (words.length === 0) { // If text is empty or only whitespace
-                    element.innerHTML = ''; 
-                    resolve();
-                    return;
-                }
-                type();
+            // Directly set the text without typewriter animation
+            element.innerHTML = text;
+            resolve();
             });
         }
 
@@ -842,6 +930,14 @@ function toggleMute() {
             currentScriptId = null;
             currentPdfUrl = null; 
             
+            // Reset progress variables
+            currentProgress = 0;
+            targetProgress = 0;
+            if (progressAnimationInterval) {
+                clearInterval(progressAnimationInterval);
+                progressAnimationInterval = null;
+            }
+            
             updateProgressBar(0); // Reset progress bar
 
             const defaultMessages = {
@@ -999,8 +1095,8 @@ function toggleMute() {
                                 <!-- PDF -->
                                 <div class="border rounded p-3 bg-gray-50">
                                     <div class="flex items-center mb-2">
-                                        <svg class="w-4 h-4 mr-2 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                                        <svg class="w-4 h-4 mr-2 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                                         </svg>
                                         <span class="font-medium text-sm">PDF</span>
                                     </div>
@@ -1013,7 +1109,7 @@ function toggleMute() {
                                 <!-- Video -->
                                 <div class="border rounded p-3 bg-gray-50">
                                     <div class="flex items-center mb-2">
-                                        <svg class="w-4 h-4 mr-2 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <svg class="w-4 h-4 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
                                         </svg>
                                         <span class="font-medium text-sm">Video</span>

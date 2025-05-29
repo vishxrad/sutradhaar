@@ -512,7 +512,7 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
     
     /* Main Slide Layout 1 - Original (Text left, Image right) */
     .main-slide {
-      background: #ffffff !important;
+      background: #e6e1d8 !important;
       color: #2c3e50 !important;
       justify-content: flex-start !important; /* Ensure headings start at top */
       padding-top: 80px !important; 
@@ -579,13 +579,16 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
 
     /* Layout 2 - Image Dominant Left (70% image, 30% text) */
     .main-image-dominant {
-      background: #ffffff !important;
+      background: #e6e1d8 !important;
       color: #2c3e50 !important;
+      justify-content: flex-start !important; /* Add this */
+      padding-top: 80px !important; /* Add this */
     }
     
     .main-image-dominant h2 {
       font-size: 72px;
       margin-bottom: 50px;
+      margin-top: 0 !important; /* Add this */
       text-align: center;
       color: #2c3e50 !important;
       text-shadow: none;
@@ -597,8 +600,9 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
       gap: 60px;
       max-width: 1700px;
       margin: 0 auto;
-      height: 100%;
+      height: auto; /* Changed from 100% to auto */
       align-items: center;
+      flex: 1; /* Add this to take remaining space */
     }
     
     .main-image-dominant .image-section {
@@ -648,26 +652,30 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
 
     /* Layout 2B - Image Dominant Right (30% text, 70% image) */
     .main-image-dominant-2 {
-      background: #ffffff !important;
+      background: #e6e1d8 !important;
       color: #2c3e50 !important;
+      justify-content: flex-start !important; /* Add this */
+      padding-top: 80px !important; /* Add this */
     }
     
     .main-image-dominant-2 h2 {
       font-size: 72px;
       margin-bottom: 50px;
+      margin-top: 0 !important; /* Add this */
       text-align: center;
       color: #2c3e50 !important;
       text-shadow: none;
     }
-    
+   
     .main-image-dominant-2 .content-container {
       display: grid;
       grid-template-columns: 30% 70%;
       gap: 60px;
       max-width: 1700px;
       margin: 0 auto;
-      height: 100%;
+      height: auto; /* Changed from 100% to auto */
       align-items: center;
+      flex: 1; /* Add this to take remaining space */
     }
     
     .main-image-dominant-2 .text-section {
@@ -717,26 +725,30 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
 
     /* Layout 3 - Image Top Full Width */
     .main-image-top {
-      background: #ffffff !important;
+      background: #e6e1d8 !important;
       color: #2c3e50 !important;
       display: flex !important;
       flex-direction: column !important;
       justify-content: flex-start !important;
       padding: 0 !important;
+      padding-top: 80px !important; /* Add consistent top padding */
     }
     
     .main-image-top h2 {
       font-size: 72px;
       margin-bottom: 50px;
+      margin-top: 0 !important; /* Add this */
       text-align: center;
       color: #2c3e50 !important;
       text-shadow: none;
-      margin: 50px 60px 40px 60px;
+      margin-left: 60px;
+      margin-right: 60px;
       background: rgba(255,255,255,0.9);
       padding: 20px;
       border-radius: 15px;
       box-shadow: 0 10px 30px rgba(0,0,0,0.1);
     }
+
     
     .main-image-top .top-image-container {
       width: 100%;
@@ -768,7 +780,7 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
       display: flex;
       align-items: center;
       justify-content: center;
-      background: #ffffff !important;
+      background: #e6e1d8 !important;
     }
     
     .main-image-top .bottom-text-container p {
@@ -791,26 +803,18 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
 
     /* Layout 4 - Text Focus with Small Accent Image */
     .main-text-focus {
-      background: #ffffff !important;
+      background: #e6e1d8 !important;
       color: #2c3e50 !important;
       position: relative;
       overflow: hidden;
-    }
-    
-    .main-text-focus::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0,0,0,0.05);
-      backdrop-filter: none;
+      justify-content: flex-start !important; /* Add this */
+      padding-top: 80px !important; /* Add this */
     }
     
     .main-text-focus h2 {
       font-size: 72px;
-      margin-bottom: 100px;
+      margin-bottom: 50px; /* Changed from 100px to 50px for consistency */
+      margin-top: 0 !important; /* Add this */
       text-align: center;
       color: #2c3e50 !important;
       text-shadow: none;
@@ -827,55 +831,15 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
       align-items: center;
       position: relative;
       z-index: 2;
+      flex: 1; /* Add this to take remaining space */
     }
-    
-    .main-text-focus .main-text {
-      font-size: 46px;
-      line-height: 1.7;
-      text-align: left;
-      text-shadow: none;
-      color: #2c3e50 !important;
-    }
-    
-    .main-text-focus .accent-image {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
-    
-    .main-text-focus .accent-image img {
-      width: 480px;
-      height: 480px;
-      object-fit: cover;
-      border-radius: 50%;
-      border: 8px solid rgba(0,0,0,0.1);
-      box-shadow: 0 15px 40px rgba(0,0,0,0.3);
-      transition: transform 0.3s ease;
-    }
-    
-    .main-text-focus .accent-image img:hover {
-      transform: scale(1.1) rotate(5deg);
-    }
-    
-    .main-text-focus .no-image-placeholder {
-      width: 480px;
-      height: 480px;
-      background: rgba(0,0,0,0.1);
-      border-radius: 50%;
-      border: 8px solid rgba(0,0,0,0.1);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #666;
-      font-size: 24px;
-      text-align: center;
-    }
-    
-    /* Thank You Slide - 16:9 optimized */
+
+    /* Thank You Slide - Keep centered */
     .thankyou-slide {
       background: linear-gradient(135deg, {{ theme.primary_color }} 0%, {{ theme.accent_color }} 100%);
       color: white;
       text-align: center;
+      justify-content: center !important; /* Keep centered for thank you slides */
     }
     
     .thankyou-slide h3 {
@@ -886,7 +850,7 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
     .thankyou-slide p {
       font-size: 48px;
       opacity: 0.9;
-      text-align: justify;
+      text-align: center;
     }
     
     /* Controls - Scaled for 16:9 */
