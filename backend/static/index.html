@@ -24,26 +24,172 @@
             0%, 100% { opacity: 0.05; transform: scale(1); }
             50% { opacity: 0.15; transform: scale(1.03); }
         }
+
+        /* New flashy animations for status steps */
+        @keyframes successPulse {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        @keyframes loadingPulse {
+            0% { transform: scale(1) rotate(0deg); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
+            50% { transform: scale(1.1) rotate(180deg); box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.3); }
+            100% { transform: scale(1) rotate(360deg); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+        }
+
+        @keyframes bounceIn {
+            0% { transform: scale(0.3) rotate(-10deg); opacity: 0; }
+            50% { transform: scale(1.1) rotate(5deg); }
+            70% { transform: scale(0.9) rotate(-2deg); }
+            100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+
+        @keyframes slideInRight {
+            0% { transform: translateX(100px); opacity: 0; }
+            100% { transform: translateX(0); opacity: 1; }
+        }
+
+        @keyframes glowRing {
+            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7), 0 0 0 0 rgba(59, 130, 246, 0.4); }
+            50% { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.3), 0 0 0 16px rgba(59, 130, 246, 0.1); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0), 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+
+        @keyframes confetti {
+            0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(-30px) rotate(360deg); opacity: 0; }
+        }
+
+        @keyframes sparkle {
+            0%, 100% { opacity: 0; transform: scale(0) rotate(0deg); }
+            50% { opacity: 1; transform: scale(1) rotate(180deg); }
+        }
         
         .animate-fade-in { animation: fadeIn 0.6s ease-out forwards; }
         .animate-scale-in { animation: scaleIn 0.8s ease-out forwards; }
         .animate-soft-glow { animation: softGlow 8s infinite ease-in-out; }
-        
+        .animate-success-pulse { animation: successPulse 1s ease-out; }
+        .animate-loading-pulse { animation: loadingPulse 2s infinite ease-in-out; }
+        .animate-bounce-in { animation: bounceIn 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55); }
+        .animate-slide-in-right { animation: slideInRight 0.6s ease-out; }
+        .animate-glow-ring { animation: glowRing 2s infinite ease-in-out; }
+
+        /* Status step enhancements */
+        .status-step {
+            position: relative;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .status-step::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+            transition: left 0.5s ease-in-out;
+        }
+
+        .status-step:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .status-step.status-loading::before {
+            animation: shimmer 2s infinite;
+        }
+
+        .status-step.status-success::before {
+            left: 100%;
+        }
+
+        .status-step.status-success {
+            background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+            border-left: 4px solid #10b981;
+        }
+
+        .status-step.status-loading {
+            background: linear-gradient(135deg, #fffbeb, #fef3c7);
+            border-left: 4px solid #f59e0b;
+        }
+
+        .status-step.status-error {
+            background: linear-gradient(135deg, #fef2f2, #fecaca);
+            border-left: 4px solid #ef4444;
+        }
+
+        /* Icon animations */
+        .status-icon {
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .status-icon.status-loading {
+            animation: loadingPulse 2s infinite ease-in-out;
+        }
+
+        .status-icon.status-success {
+            animation: successPulse 1s ease-out;
+            background: linear-gradient(135deg, #10b981, #059669) !important;
+        }
+
+        .status-icon.status-success::after {
+            content: '✨';
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            font-size: 12px;
+            animation: sparkle 1.5s ease-in-out;
+        }
+
+        /* Hover effects for completed steps */
+        .status-step.status-success:hover .status-icon {
+            animation: successPulse 0.6s ease-out;
+        }
+
+        .status-step:hover .status-icon {
+            transform: scale(1.1);
+        }
+
+        /* Confetti effect for completion */
+        .confetti-particle {
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            background: linear-gradient(45deg, #f59e0b, #10b981, #3b82f6, #8b5cf6);
+            animation: confetti 1s ease-out forwards;
+            pointer-events: none;
+        }
+
+        /* Progress bar enhancements */
         .progress-bar-container {
             width: 100%;
-            background-color: #e5e7eb; /* Tailwind gray-200 */
-            border-radius: 0.375rem; /* rounded-md */
+            background-color: #e5e7eb;
+            border-radius: 0.375rem;
             overflow: hidden;
-            margin-bottom: 1.5rem; /* mb-6 */
+            margin-bottom: 1.5rem;
             position: relative;
         }
+
         .progress-bar {
-            height: 0.75rem; /* h-3 */
-            background-color: #3b82f6; /* Tailwind blue-500 */
+            height: 0.75rem;
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6, #10b981);
+            background-size: 200% 100%;
             width: 0%;
             transition: width 0.3s ease-out;
             position: relative;
             overflow: hidden;
+            animation: gradient-shift 3s ease infinite;
+        }
+
+        @keyframes gradient-shift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
         }
         
         .progress-bar::after {
@@ -53,7 +199,7 @@
             left: 0;
             height: 100%;
             width: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
             animation: shimmer 1.5s infinite;
         }
         
@@ -70,6 +216,13 @@
             border-radius: 4px;
             min-width: 40px;
             text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .progress-percentage.celebrating {
+            animation: bounceIn 0.8s ease-out;
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
         }
         
         @keyframes shimmer {
@@ -90,17 +243,15 @@
             backdrop-filter: blur(8px);
         }
         
-        .status-pending { color: #6b7280; } /* Gray for pending/default text */
-        .status-loading { color: #f59e0b; } /* Amber for loading text */
-        .status-success { color: #10b981; } /* Green for success text */
-        .status-error { color: #ef4444; }   /* Red for error text */
+        .status-pending { color: #6b7280; }
+        .status-loading { color: #f59e0b; }
+        .status-success { color: #10b981; }
+        .status-error { color: #ef4444; }
         
-        /* Icon background colors */
-        .status-pending .status-icon, .status-icon.status-pending { background-color: #9ca3af; } /* Lighter gray for pending icon bg */
-        .status-loading .status-icon, .status-icon.status-loading { background-color: #f59e0b; } /* Amber for loading icon bg */
-        .status-success .status-icon, .status-icon.status-success { background-color: #10b981; } /* Green for success icon bg */
-        .status-error .status-icon, .status-icon.status-error   { background-color: #ef4444; }   /* Red for error icon bg */
-
+        .status-pending .status-icon, .status-icon.status-pending { background-color: #9ca3af; }
+        .status-loading .status-icon, .status-icon.status-loading { background-color: #f59e0b; }
+        .status-success .status-icon, .status-icon.status-success { background-color: #10b981; }
+        .status-error .status-icon, .status-icon.status-error { background-color: #ef4444; }
 
         .segment {
             background: #f8fafc;
@@ -108,6 +259,53 @@
             margin: 0.5rem 0;
             border-radius: 0.5rem;
             border-left: 4px solid #3b82f6;
+        }
+
+        /* Cool Syncing Bars Loader with enhanced animation */
+        .syncing-loader-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 50px;
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+
+        .syncing-loader-bar {
+            width: 8px;
+            height: 40px;
+            background: linear-gradient(180deg, #4f46e5, #8b5cf6);
+            margin: 0 4px;
+            border-radius: 3px;
+            animation: sync-animation 1.2s infinite ease-in-out;
+            transform-origin: bottom;
+            box-shadow: 0 0 10px rgba(79, 70, 229, 0.3);
+        }
+
+        .syncing-loader-bar:nth-child(1) { animation-delay: -0.45s; }
+        .syncing-loader-bar:nth-child(2) { animation-delay: -0.3s; }
+        .syncing-loader-bar:nth-child(3) { animation-delay: -0.15s; }
+
+        @keyframes sync-animation {
+            0%, 100% {
+                transform: scaleY(0.1);
+                background: linear-gradient(180deg, #818cf8, #c4b5fd);
+                box-shadow: 0 0 5px rgba(129, 140, 248, 0.3);
+            }
+            50% {
+                transform: scaleY(1.0);
+                background: linear-gradient(180deg, #4f46e5, #8b5cf6);
+                box-shadow: 0 0 20px rgba(79, 70, 229, 0.6);
+            }
+        }
+
+        /* Text animation for status updates */
+        .status-text {
+            transition: all 0.3s ease;
+        }
+
+        .status-text.updating {
+            animation: slideInRight 0.5s ease-out;
         }
     </style>
 </head>
@@ -139,19 +337,6 @@
             <div class="absolute w-1 h-1 bg-indigo-300/20 rounded-full animate-pulse" style="left: 85%; top: 85%; animation-delay: 2.5s; animation-duration: 3.7s;"></div>
             <div class="absolute w-2 h-2 bg-blue-300/20 rounded-full animate-pulse" style="left: 15%; top: 40%; animation-delay: 0.9s; animation-duration: 2.9s;"></div>
         </div>
-
-        <!-- Logo with animated rings - Increased Size -->
-        <!-- <div class="relative mb-8 animate-scale-in" style="animation-delay: 0.2s;">
-            <div class="absolute inset-0 animate-ping opacity-70">
-                <div class="w-32 h-32 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full opacity-20"></div>
-            </div>
-            <div class="absolute inset-2 animate-pulse opacity-80">
-                <div class="w-28 h-28 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full opacity-40"></div>
-            </div>
-            <div class="relative w-24 h-24 bg-gradient-to-br from-blue-600 to-purple-700 rounded-full flex items-center justify-center shadow-2xl">
-                <div class="text-white text-4xl font-bold">स</div>
-            </div>
-        </div> -->
 
         <!-- Main content -->
         <div class="text-center space-y-6 max-w-2xl">
@@ -187,10 +372,6 @@
         <br>
         
        
-
-       <!-- <div style="width: 100%; height: 100%; position: relative;">
-  <video src="v.mp4" controls autoplay style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;"></video>
-</div> -->
 <br>
 <div class="relative w-[80%] h-[800px] mx-auto mt-8 rounded-xl overflow-hidden shadow-xl border-4 border-transparent bg-clip-padding ">
   <div class="w-full h-full bg-black rounded-lg overflow-hidden">
@@ -246,12 +427,6 @@ function toggleMute() {
             <div class="max-w-4xl w-full">
                 <!-- Header Section -->
                 <div class="text-center space-y-6 mb-12">
-                    <!-- Logo -->
-                    <!-- <div class="flex justify-center mb-6">
-                        <div class="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-xl">
-                            <div class="text-white text-2xl font-bold">स</div>
-                        </div>
-                    </div> -->
                     
                     <h1 class="text-5xl md:text-6xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent" style="line-height: 1.5;">
                         सूत्रधार
@@ -351,6 +526,14 @@ function toggleMute() {
                 <div id="statusSection" class="bg-white/80 backdrop-blur-sm border border-gray-200 rounded-2xl p-8 shadow-xl mb-8" style="display: none;">
                     <h3 class="text-2xl font-bold text-gray-800 mb-6 text-center">Generation Progress</h3>
                     
+                    <!-- New Cool Loader -->
+                    <div class="syncing-loader-container" id="coolLoader" style="display: none;">
+                        <div class="syncing-loader-bar"></div>
+                        <div class="syncing-loader-bar"></div>
+                        <div class="syncing-loader-bar"></div>
+                        <div class="syncing-loader-bar"></div>
+                    </div>
+
                     <!-- Overall Progress Bar -->
                     <div class="progress-bar-container">
                         <div id="overallProgressBar" class="progress-bar"></div>
@@ -358,28 +541,28 @@ function toggleMute() {
                     </div>
 
                     <div class="space-y-4">
-                        <div id="scriptStatus" class="flex items-center p-4 bg-gray-50 rounded-lg">
-                            <span class="status-icon status-pending w-8 h-8 rounded-full text-white font-bold flex items-center justify-center mr-4">1</span>
+                        <div id="scriptStatus" class="status-step flex items-center p-4 bg-gray-50 rounded-lg">
+                            <span class="status-icon status-pending w-8 h-8 rounded-full text-white font-bold flex items-center justify-center mr-4" data-step="1">1</span>
                             <span class="status-text text-gray-600">Waiting to generate script...</span>
                         </div>
-                        <div id="imagesStatus" class="flex items-center p-4 bg-gray-50 rounded-lg">
-                            <span class="status-icon status-pending w-8 h-8 rounded-full text-white font-bold flex items-center justify-center mr-4">2</span>
+                        <div id="imagesStatus" class="status-step flex items-center p-4 bg-gray-50 rounded-lg">
+                            <span class="status-icon status-pending w-8 h-8 rounded-full text-white font-bold flex items-center justify-center mr-4" data-step="2">2</span>
                             <span class="status-text text-gray-600">Waiting to generate images...</span>
                         </div>
-                        <div id="audioStatus" class="flex items-center p-4 bg-gray-50 rounded-lg">
-                            <span class="status-icon status-pending w-8 h-8 rounded-full text-white font-bold flex items-center justify-center mr-4">3</span>
+                        <div id="audioStatus" class="status-step flex items-center p-4 bg-gray-50 rounded-lg">
+                            <span class="status-icon status-pending w-8 h-8 rounded-full text-white font-bold flex items-center justify-center mr-4" data-step="3">3</span>
                             <span class="status-text text-gray-600">Waiting to generate audio...</span>
                         </div>
-                        <div id="pdfStatus" class="flex items-center p-4 bg-gray-50 rounded-lg">
-                            <span class="status-icon status-pending w-8 h-8 rounded-full text-white font-bold flex items-center justify-center mr-4">4</span>
+                        <div id="pdfStatus" class="status-step flex items-center p-4 bg-gray-50 rounded-lg">
+                            <span class="status-icon status-pending w-8 h-8 rounded-full text-white font-bold flex items-center justify-center mr-4" data-step="4">4</span>
                             <span class="status-text text-gray-600">Waiting to create PDF...</span>
                         </div>
-                        <div id="videoChunksStatus" class="flex items-center p-4 bg-gray-50 rounded-lg">
-                            <span class="status-icon status-pending w-8 h-8 rounded-full text-white font-bold flex items-center justify-center mr-4">5</span>
+                        <div id="videoChunksStatus" class="status-step flex items-center p-4 bg-gray-50 rounded-lg">
+                            <span class="status-icon status-pending w-8 h-8 rounded-full text-white font-bold flex items-center justify-center mr-4" data-step="5">5</span>
                             <span class="status-text text-gray-600">Waiting to generate video chunks...</span>
                         </div>
-                        <div id="combineVideoStatus" class="flex items-center p-4 bg-gray-50 rounded-lg">
-                            <span class="status-icon status-pending w-8 h-8 rounded-full text-white font-bold flex items-center justify-center mr-4">6</span>
+                        <div id="combineVideoStatus" class="status-step flex items-center p-4 bg-gray-50 rounded-lg">
+                            <span class="status-icon status-pending w-8 h-8 rounded-full text-white font-bold flex items-center justify-center mr-4" data-step="6">6</span>
                             <span class="status-text text-gray-600">Waiting to combine video...</span>
                         </div>
                     </div>
@@ -498,6 +681,64 @@ function toggleMute() {
             document.getElementById('topic').value = suggestion;
         }
 
+        // Add this function before generatePresentation()
+        function clearPresentationCache() {
+            // Clear any cached data
+            currentScriptId = null;
+            currentPdfUrl = null;
+            historyData = [];
+            
+            // Clear browser cache for API calls
+            if ('caches' in window) {
+                caches.keys().then(function(names) {
+                    names.forEach(function(name) {
+                        if (name.includes('sutradhaar') || name.includes('generate')) {
+                            caches.delete(name);
+                        }
+                    });
+                });
+            }
+        }
+
+        function setButtonLoading(isLoading) {
+            const generateBtn = document.getElementById('generateBtn');
+            const btnText = document.getElementById('btnText');
+            const btnSpinner = document.getElementById('btnSpinner');
+            
+            if (generateBtn && btnText && btnSpinner) {
+                if (isLoading) {
+                    generateBtn.disabled = true;
+                    btnText.style.display = 'none';
+                    btnSpinner.style.display = 'inline-flex';
+                    generateBtn.classList.add('opacity-75', 'cursor-not-allowed');
+                } else {
+                    generateBtn.disabled = false;
+                    btnText.style.display = 'inline';
+                    btnSpinner.style.display = 'none';
+                    generateBtn.classList.remove('opacity-75', 'cursor-not-allowed');
+                }
+            }
+        }
+
+        function showError(message) {
+            const errorSection = document.getElementById('errorSection');
+            const errorMessage = document.getElementById('errorMessage');
+            
+            if (errorSection && errorMessage) {
+                errorMessage.textContent = message;
+                errorSection.style.display = 'block';
+                
+                // Hide other sections
+                const sectionsToHide = ['statusSection', 'scriptPreview', 'downloadSection'];
+                sectionsToHide.forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.style.display = 'none';
+                });
+            }
+            
+            console.error('Error:', message);
+        }
+
         async function generatePresentation() {
             console.log('Generate presentation clicked');
             const topic = document.getElementById('topic').value.trim();
@@ -512,37 +753,81 @@ function toggleMute() {
             updateProgressBar(0); // Initialize progress bar
 
             try {
-                // Step 1: Generate Script
+                // Step 1: Generate Script with cache-busting
                 updateStatus('scriptStatus', 'loading', 'Generating script content...');
+                
+                // Add timestamp and random value to prevent caching
+                const cacheBuster = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                
                 const scriptRes = await fetch(`${API_BASE}/generate-script`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ topic })
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
+                    },
+                    body: JSON.stringify({ 
+                        topic: topic,
+                        cache_buster: cacheBuster,
+                        force_regenerate: true // Add this flag to force backend regeneration
+                    })
                 });
-                if (!scriptRes.ok) throw new Error(`Script generation failed: ${ (await scriptRes.json().catch(()=>({}))).detail || scriptRes.statusText}`);
+                
+                if (!scriptRes.ok) {
+                    const errorData = await scriptRes.json().catch(() => ({}));
+                    throw new Error(`Script generation failed: ${errorData.detail || scriptRes.statusText}`);
+                }
                 
                 const scriptData = await scriptRes.json();
+                
+                // Validate script data structure
+                if (!scriptData.script_id) {
+                    throw new Error('Invalid script response: missing script_id');
+                }
+                
+                if (!scriptData.parsed_script) {
+                    throw new Error('Invalid script response: missing parsed_script');
+                }
+                
                 currentScriptId = scriptData.script_id;
                 updateStatus('scriptStatus', 'success', 'Script generated successfully!');
                 updateProgressBar(20); // Progress after script
                 addMicroProgress(20, 8); // Add small increments during image generation
 
+                // Enhanced script parsing with better error handling
                 let parsedScriptForPreview = scriptData.parsed_script;
+                
                 if (typeof parsedScriptForPreview === 'string') {
                     try {
                         console.log("parsed_script is a string, attempting to parse JSON.");
                         parsedScriptForPreview = JSON.parse(parsedScriptForPreview);
                     } catch (e) {
                         console.error("Failed to parse script_data.parsed_script string:", e, "Raw string:", scriptData.parsed_script);
-                        const scriptContentDiv = document.getElementById('scriptContent');
-                        const scriptPreviewSection = document.getElementById('scriptPreview');
-                        if (scriptContentDiv) {
-                             scriptContentDiv.innerHTML = '<p class="text-red-600">Error: Script content is malformed and cannot be displayed.</p>';
-                        }
-                        if(scriptPreviewSection) scriptPreviewSection.style.display = 'block';
-                        throw new Error("Malformed script data received. Cannot display preview."); 
+                        throw new Error("Malformed script data received. Please try again with a different topic or rephrase your request.");
                     }
                 }
+                
+                // Validate parsed script structure
+                if (!Array.isArray(parsedScriptForPreview)) {
+                    console.error("Parsed script is not an array:", parsedScriptForPreview);
+                    throw new Error("Invalid script format received. Please try again.");
+                }
+                
+                // Check if script has valid slides
+                let hasValidSlides = false;
+                for (const segment of parsedScriptForPreview) {
+                    if (segment && typeof segment === 'object' && Array.isArray(segment.slides) && segment.slides.length > 0) {
+                        hasValidSlides = true;
+                        break;
+                    }
+                }
+                
+                if (!hasValidSlides) {
+                    console.error("No valid slides found in script segments:", parsedScriptForPreview);
+                    throw new Error("No slides found in the generated script. Please try again with a different topic or rephrase your request.");
+                }
+                
                 await showScriptPreview(parsedScriptForPreview, scriptData.topic);
 
 
@@ -550,8 +835,15 @@ function toggleMute() {
                 updateStatus('imagesStatus', 'loading', 'Generating images for slides...');
                 const imagesRes = await fetch(`${API_BASE}/generate-images`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ script_id: currentScriptId, use_unsplash_fallback: true })
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'no-cache, no-store, must-revalidate'
+                    },
+                    body: JSON.stringify({ 
+                        script_id: currentScriptId, 
+                        use_unsplash_fallback: true,
+                        cache_buster: cacheBuster
+                    })
                 });
                 if (!imagesRes.ok) throw new Error(`Image generation failed: ${ (await imagesRes.json().catch(()=>({}))).detail || imagesRes.statusText}`);
                 const imagesData = await imagesRes.json();
@@ -652,11 +944,22 @@ function toggleMute() {
                 console.error('Video generation error:', error);
                 updateStatus('videoChunksStatus', 'error', 'Video generation failed');
                 updateStatus('combineVideoStatus', 'error', 'Video generation failed');
-                updateProgressBar(document.getElementById('overallProgressBar').style.width.replace('%','') || 70, true); // Show error on progress bar at current stage
+                
+                let errorDisplayProgress = parseFloat(currentProgress); 
+                if (isNaN(errorDisplayProgress)) {
+                    errorDisplayProgress = 70; 
+                }
+                errorDisplayProgress = Math.min(Math.max(errorDisplayProgress, 70), 99); 
+
+                updateProgressBar(errorDisplayProgress, true); 
+
                 const downloadMessage = document.getElementById('downloadSectionMessage');
-                if (downloadMessage && document.getElementById('downloadSection').style.display === 'block') {
+                const downloadSection = document.getElementById('downloadSection');
+                const downloadSectionVisible = downloadSection && downloadSection.style.display === 'block';
+
+                if (downloadMessage && downloadSectionVisible) {
                      downloadMessage.textContent += ' However, video generation encountered an error.';
-                } else if (!document.getElementById('downloadSection').style.display === 'block') {
+                } else if (!downloadSectionVisible) { 
                     showError(`Video generation failed: ${error.message}`);
                 }
             } finally {
@@ -664,91 +967,122 @@ function toggleMute() {
             }
         }
         
-        let progressAnimationInterval = null;
+        let animationFrameId = null; 
         let currentProgress = 0;
         let targetProgress = 0;
 
         function updateProgressBar(percentage, isError = false) {
             const progressBar = document.getElementById('overallProgressBar');
             const progressText = document.getElementById('progressPercentage');
+            const coolLoader = document.getElementById('coolLoader');
+
+            let newTargetPercentage = parseFloat(percentage);
+            if (isNaN(newTargetPercentage)) {
+                console.error("updateProgressBar called with invalid percentage:", percentage, "- using currentProgress or 0 as fallback.");
+                newTargetPercentage = parseFloat(currentProgress); 
+                if (isNaN(newTargetPercentage)) { 
+                    newTargetPercentage = 0; 
+                }
+            }
             
             if (progressBar && progressText) {
-                // Ensure percentage never exceeds 100%
-                targetProgress = Math.min(percentage, 100);
-                
-                // Clear any existing animation
-                if (progressAnimationInterval) {
-                    clearInterval(progressAnimationInterval);
+                targetProgress = Math.min(newTargetPercentage, 100); 
+                targetProgress = Math.max(targetProgress, 0);   
+
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                    animationFrameId = null;
                 }
                 
-                // Add loading animation class
                 if (targetProgress < 100 && !isError) {
                     progressBar.classList.add('loading');
+                    if (coolLoader) coolLoader.style.display = 'flex'; 
                 } else {
                     progressBar.classList.remove('loading');
+                    if (coolLoader) coolLoader.style.display = 'none'; 
                 }
                 
-                // Animate progress smoothly
-                progressAnimationInterval = setInterval(() => {
-                    if (currentProgress < targetProgress) {
-                        currentProgress += 0.5; // Smooth increment
-                        if (currentProgress > targetProgress) {
-                            currentProgress = targetProgress;
+                const animateProgress = () => {
+                    if (isNaN(currentProgress)) {
+                        console.warn("currentProgress was NaN, resetting to 0.");
+                        currentProgress = 0;
+                    }
+
+                    const diff = targetProgress - currentProgress;
+                    
+                    if (Math.abs(diff) < 0.1) { 
+                        currentProgress = targetProgress; 
+                        progressBar.style.width = `${currentProgress}%`;
+                        progressText.textContent = `${Math.round(currentProgress)}%`;
+                        
+                        // Add celebration effect when reaching 100%
+                        if (currentProgress === 100 && !isError) {
+                            progressText.classList.add('celebrating');
+                            createConfetti(progressText);
+                            setTimeout(() => progressText.classList.remove('celebrating'), 1000);
                         }
-                    } else if (currentProgress > targetProgress) {
-                        currentProgress -= 0.5;
-                        if (currentProgress < targetProgress) {
-                            currentProgress = targetProgress;
+                        
+                        if (currentProgress === 100 || isError) {
+                            progressBar.classList.remove('loading');
+                            if (coolLoader) coolLoader.style.display = 'none'; 
                         }
+                        animationFrameId = null; 
+                        return;
                     }
                     
-                    // Ensure current progress never exceeds 100%
-                    currentProgress = Math.min(currentProgress, 100);
+                    currentProgress += diff * 0.1; 
+                    currentProgress = Math.min(Math.max(currentProgress, 0), 100); 
                     
                     progressBar.style.width = `${currentProgress}%`;
                     progressText.textContent = `${Math.round(currentProgress)}%`;
                     
-                    // Stop animation when target is reached
-                    if (currentProgress === targetProgress) {
-                        clearInterval(progressAnimationInterval);
-                        progressAnimationInterval = null;
-                        
-                        // Remove loading animation when complete or error
-                        if (currentProgress === 100 || isError) {
-                            progressBar.classList.remove('loading');
-                        }
-                    }
-                }, 16); // ~60fps for smooth animation
+                    animationFrameId = requestAnimationFrame(animateProgress);
+                };
                 
-                // Set colors based on state
+                animationFrameId = requestAnimationFrame(animateProgress);
+                
                 if (isError) {
-                    progressBar.style.backgroundColor = '#ef4444'; // Tailwind red-500
-                } else if (currentProgress === 100) {
-                    progressBar.style.backgroundColor = '#10b981'; // Tailwind green-500
+                    progressBar.style.background = 'linear-gradient(90deg, #ef4444, #dc2626)';
+                } else if (targetProgress === 100) {
+                    progressBar.style.background = 'linear-gradient(90deg, #10b981, #059669)';
                 } else {
-                    progressBar.style.backgroundColor = '#3b82f6'; // Tailwind blue-500 (default)
+                    progressBar.style.background = 'linear-gradient(90deg, #3b82f6, #8b5cf6, #10b981)';
                 }
             }
         }
 
-        // Add micro-animations during long processes
         function addMicroProgress(baseProgress, maxIncrement = 5) {
-            // Ensure we don't exceed safe limits
-            const safeLimit = Math.min(baseProgress + maxIncrement, 95);
-            if (currentProgress < safeLimit) {
+            const intendedMicroTarget = Math.min(parseFloat(baseProgress) + maxIncrement, 98); 
+            
+            let currentAnimatedProg = parseFloat(currentProgress); 
+            if (isNaN(currentAnimatedProg)) {
+                currentAnimatedProg = parseFloat(baseProgress); 
+                if(isNaN(currentAnimatedProg)) currentAnimatedProg = 0; 
+            }
+
+            if (targetProgress < 100 && currentAnimatedProg < intendedMicroTarget && intendedMicroTarget <= 98) {
                 setTimeout(() => {
-                    const nextProgress = Math.min(currentProgress + 1, safeLimit);
-                    updateProgressBar(nextProgress);
-                    if (Math.random() > 0.7 && currentProgress < safeLimit - 1) { // 30% chance to add another micro increment
-                        setTimeout(() => addMicroProgress(baseProgress, maxIncrement), 2000 + Math.random() * 3000);
+                    let currentActualProgOnTimeout = parseFloat(currentProgress);
+                     if (isNaN(currentActualProgOnTimeout)) {
+                        currentActualProgOnTimeout = parseFloat(baseProgress); 
+                        if(isNaN(currentActualProgOnTimeout)) currentActualProgOnTimeout = 0; 
                     }
-                }, 1000 + Math.random() * 2000);
+
+                    if (targetProgress >= 100 || currentActualProgOnTimeout >= 100 || currentActualProgOnTimeout >= intendedMicroTarget) {
+                        return; 
+                    }
+
+                    const nextMicroStepProgress = Math.min(currentActualProgOnTimeout + 2, intendedMicroTarget); 
+                    
+                    if (nextMicroStepProgress > currentActualProgOnTimeout && !isNaN(nextMicroStepProgress)) { 
+                       updateProgressBar(nextMicroStepProgress); 
+                    }
+                }, 1500); 
             }
         }
 
-        function typewriterEffect(element, text, speed = 30) { // Default speed 30ms per word
+        function typewriterEffect(element, text, speed = 30) { 
             return new Promise(resolve => {
-            // Directly set the text without typewriter animation
             element.innerHTML = text;
             resolve();
             });
@@ -764,13 +1098,10 @@ function toggleMute() {
 
             scriptContentDiv.innerHTML = ''; 
 
-            // The script is expected to be an array of segments,
-            // where each segment has a "slides" array.
             if (script && Array.isArray(script)) {
                 let totalSlidesProcessed = 0;
                 for (const segment of script) {
                     if (segment && typeof segment === 'object' && Array.isArray(segment.slides)) {
-                        // Optionally display segment title if you want
                         if (segment.segment_title) {
                             const segmentTitleEl = document.createElement('h3');
                             segmentTitleEl.className = 'text-lg font-semibold text-purple-700 mt-4 mb-2 animate-fade-in';
@@ -799,14 +1130,12 @@ function toggleMute() {
                                 slideDiv.appendChild(titleEl);
                                 await typewriterEffect(titleEl, titleText, 50); 
 
-                                // Use 'narration' field instead of 'content'
                                 const narrationText = slide.narration || 'No narration'; 
                                 const contentEl = document.createElement('p');
                                 contentEl.className = 'text-sm text-gray-700';
                                 slideDiv.appendChild(contentEl);
                                 await typewriterEffect(contentEl, narrationText, 25); 
 
-                                // Speaker notes are not in the provided example, but keeping the logic
                                 if (slide.speaker_notes) {
                                     const notesText = `Notes: ${slide.speaker_notes}`;
                                     const notesContainerEl = document.createElement('p');
@@ -872,73 +1201,178 @@ function toggleMute() {
             const iconSpan = el.querySelector('.status-icon');
             const textSpan = el.querySelector('.status-text');
 
+            // Add animation classes to the parent element
+            el.classList.remove('status-pending', 'status-loading', 'status-success', 'status-error');
+            el.classList.add(`status-${status}`);
+
             if (iconSpan) {
-                // Remove previous status classes for background
                 iconSpan.classList.remove('status-pending', 'status-loading', 'status-success', 'status-error');
-                // Add current status class for background
                 iconSpan.classList.add(`status-${status}`);
                 
                 if (status === 'loading') {
                     iconSpan.innerHTML = '<svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
                 } else if (status === 'success') {
                     iconSpan.textContent = '✓';
+                    // Trigger confetti effect
+                    createConfetti(iconSpan);
+                    // Add success animation
+                    setTimeout(() => iconSpan.classList.add('animate-success-pulse'), 100);
                 } else if (status === 'error') {
                     iconSpan.textContent = '✕';
-                } else { // pending or other
-                    iconSpan.textContent = iconSpan.dataset.step || '?'; 
+                } else { 
+                    // For pending status, show the step number
+                    const stepNumber = iconSpan.dataset.step || iconSpan.textContent || '?';
+                    iconSpan.textContent = stepNumber;
                 }
             }
+            
             if (textSpan) {
+                textSpan.classList.add('updating');
                 textSpan.textContent = message;
-                // Remove previous status classes for text color
                 textSpan.classList.remove('status-pending', 'status-loading', 'status-success', 'status-error');
-                // Add current status class for text color
                 textSpan.classList.add(`status-${status}`);
+                
+                // Remove animation class after animation completes
+                setTimeout(() => textSpan.classList.remove('updating'), 500);
             }
         }
         
-        document.addEventListener('DOMContentLoaded', () => {
-            ['scriptStatus', 'imagesStatus', 'audioStatus', 'pdfStatus', 'videoChunksStatus', 'combineVideoStatus'].forEach((id, i) => {
-                const el = document.getElementById(id);
-                if (el) {
-                    const icon = el.querySelector('.status-icon');
-                    if(icon) icon.dataset.step = (i + 1).toString();
+        // Add confetti creation function
+        function createConfetti(element) {
+            const colors = ['#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ef4444'];
+            const rect = element.getBoundingClientRect();
+            
+            for (let i = 0; i < 12; i++) {
+                const confetti = document.createElement('div');
+                confetti.className = 'confetti-particle';
+                confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                confetti.style.left = `${rect.left + rect.width / 2}px`;
+                confetti.style.top = `${rect.top + rect.height / 2}px`;
+                confetti.style.animationDelay = `${Math.random() * 0.3}s`;
+                confetti.style.animationDuration = `${0.8 + Math.random() * 0.4}s`;
+                
+                // Random direction
+                const angle = (Math.random() * 360) * (Math.PI / 180);
+                const velocity = 30 + Math.random() * 20;
+                confetti.style.setProperty('--dx', `${Math.cos(angle) * velocity}px`);
+                confetti.style.setProperty('--dy', `${Math.sin(angle) * velocity}px`);
+                
+                document.body.appendChild(confetti);
+                
+                // Remove after animation
+                setTimeout(() => confetti.remove(), 1200);
+            }
+        }
+
+        // Enhanced progress bar function
+        function updateProgressBar(percentage, isError = false) {
+            const progressBar = document.getElementById('overallProgressBar');
+            const progressText = document.getElementById('progressPercentage');
+            const coolLoader = document.getElementById('coolLoader');
+
+            let newTargetPercentage = parseFloat(percentage);
+            if (isNaN(newTargetPercentage)) {
+                console.error("updateProgressBar called with invalid percentage:", percentage, "- using currentProgress or 0 as fallback.");
+                newTargetPercentage = parseFloat(currentProgress); 
+                if (isNaN(newTargetPercentage)) { 
+                    newTargetPercentage = 0; 
                 }
-            });
-        });
+            }
+            
+            if (progressBar && progressText) {
+                targetProgress = Math.min(newTargetPercentage, 100); 
+                targetProgress = Math.max(targetProgress, 0);   
 
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                    animationFrameId = null;
+                }
+                
+                if (targetProgress < 100 && !isError) {
+                    progressBar.classList.add('loading');
+                    if (coolLoader) coolLoader.style.display = 'flex'; 
+                } else {
+                    progressBar.classList.remove('loading');
+                    if (coolLoader) coolLoader.style.display = 'none'; 
+                }
+                
+                const animateProgress = () => {
+                    if (isNaN(currentProgress)) {
+                        console.warn("currentProgress was NaN, resetting to 0.");
+                        currentProgress = 0;
+                    }
 
-        function showError(msg) {
-            const errorSection = document.getElementById('errorSection');
-            const errorMessage = document.getElementById('errorMessage');
-            if (errorMessage) errorMessage.textContent = msg;
-            if (errorSection) errorSection.style.display = 'block';
-            // Optionally hide status section if a major error occurs early
-            // document.getElementById('statusSection').style.display = 'none'; 
+                    const diff = targetProgress - currentProgress;
+                    
+                    if (Math.abs(diff) < 0.1) { 
+                        currentProgress = targetProgress; 
+                        progressBar.style.width = `${currentProgress}%`;
+                        progressText.textContent = `${Math.round(currentProgress)}%`;
+                        
+                        // Add celebration effect when reaching 100%
+                        if (currentProgress === 100 && !isError) {
+                            progressText.classList.add('celebrating');
+                            createConfetti(progressText);
+                            setTimeout(() => progressText.classList.remove('celebrating'), 1000);
+                        }
+                        
+                        if (currentProgress === 100 || isError) {
+                            progressBar.classList.remove('loading');
+                            if (coolLoader) coolLoader.style.display = 'none'; 
+                        }
+                        animationFrameId = null; 
+                        return;
+                    }
+                    
+                    currentProgress += diff * 0.1; 
+                    currentProgress = Math.min(Math.max(currentProgress, 0), 100); 
+                    
+                    progressBar.style.width = `${currentProgress}%`;
+                    progressText.textContent = `${Math.round(currentProgress)}%`;
+                    
+                    animationFrameId = requestAnimationFrame(animateProgress);
+                };
+                
+                animationFrameId = requestAnimationFrame(animateProgress);
+                
+                if (isError) {
+                    progressBar.style.background = 'linear-gradient(90deg, #ef4444, #dc2626)';
+                } else if (targetProgress === 100) {
+                    progressBar.style.background = 'linear-gradient(90deg, #10b981, #059669)';
+                } else {
+                    progressBar.style.background = 'linear-gradient(90deg, #3b82f6, #8b5cf6, #10b981)';
+                }
+            }
         }
 
-        function setButtonLoading(isLoading) {
-            const btn = document.getElementById('generateBtn');
-            const btnText = document.getElementById('btnText');
-            const btnSpinner = document.getElementById('btnSpinner');
-            if (btn) btn.disabled = isLoading;
-            if (btnText) btnText.style.display = isLoading ? 'none' : 'inline';
-            if (btnSpinner) btnSpinner.style.display = isLoading ? 'inline' : 'none';
-        }
-
+        // Enhanced resetUI function
         function resetUI() {
             currentScriptId = null;
             currentPdfUrl = null; 
-            
-            // Reset progress variables
-            currentProgress = 0;
-            targetProgress = 0;
-            if (progressAnimationInterval) {
-                clearInterval(progressAnimationInterval);
-                progressAnimationInterval = null;
+
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
             }
             
-            updateProgressBar(0); // Reset progress bar
+            currentProgress = 0;
+            targetProgress = 0;
+            
+            const progressBar = document.getElementById('overallProgressBar');
+            const progressText = document.getElementById('progressPercentage');
+            if (progressBar && progressText) {
+                progressBar.style.width = '0%';
+                progressText.textContent = '0%';
+                progressBar.classList.remove('loading');
+                progressBar.style.background = 'linear-gradient(90deg, #3b82f6, #8b5cf6, #10b981)';
+                progressText.classList.remove('celebrating');
+            }
+
+            // Hide the cool loader
+            const coolLoader = document.getElementById('coolLoader');
+            if (coolLoader) {
+                coolLoader.style.display = 'none';
+            }
 
             const defaultMessages = {
                 'scriptStatus': 'Waiting to generate script...',
@@ -954,16 +1388,21 @@ function toggleMute() {
                 if (el) {
                     const icon = el.querySelector('.status-icon');
                     const text = el.querySelector('.status-text');
-                    const stepNumber = icon ? icon.dataset.step : '';
+                    
+                    // Reset all status classes
+                    el.classList.remove('status-loading', 'status-success', 'status-error');
+                    el.classList.add('status-pending');
                     
                     if (icon) {
-                        icon.classList.remove('status-loading', 'status-success', 'status-error');
+                        icon.classList.remove('status-loading', 'status-success', 'status-error', 'animate-success-pulse');
                         icon.classList.add('status-pending');
-                        icon.innerHTML = stepNumber; 
+                        // Get the step number from data-step attribute
+                        const stepNumber = icon.dataset.step || icon.textContent || '?';
+                        icon.textContent = stepNumber;
                     }
                     if (text) {
                         text.textContent = defaultMessages[id] || 'Waiting...';
-                        text.classList.remove('status-loading', 'status-success', 'status-error');
+                        text.classList.remove('status-loading', 'status-success', 'status-error', 'updating');
                         text.classList.add('status-pending');
                     }
                 }
@@ -974,7 +1413,6 @@ function toggleMute() {
                 if (el) el.style.display = 'none';
             });
             document.getElementById('scriptContent').innerHTML = '';
-
 
             const downloadTitle = document.getElementById('downloadSectionTitle');
             const downloadMessage = document.getElementById('downloadSectionMessage');
@@ -994,6 +1432,9 @@ function toggleMute() {
                 if (videoSourceElement) videoSourceElement.setAttribute('src', '');
                 videoPlayerElement.load();
             }
+
+            // Add cache clearing at the end
+            clearPresentationCache();
         }
 
         function showHistory() {
@@ -1007,7 +1448,7 @@ function toggleMute() {
                 historyData.forEach(item => {
                     const scriptLinkText = (item.script && item.script.startsWith('http')) ? 'View Script' : (item.script || 'N/A');
                     const pdfLinkText = 'Download PDF';
-                    const videoLinkText = 'View Video';
+                                       const videoLinkText = 'View Video';
 
                     const row = `
                     <tr class="border-b border-gray-200 hover:bg-gray-50">
@@ -1047,7 +1488,6 @@ function toggleMute() {
             const content = document.getElementById('allAssetsContent');
             
             try {
-                // Show loading state
                 content.innerHTML = '<div class="text-center py-4"><div class="animate-spin inline-block w-6 h-6 border-2 border-gray-300 border-t-blue-600 rounded-full"></div><p class="mt-2 text-gray-600">Loading assets...</p></div>';
                 container.style.display = 'block';
                 
@@ -1063,7 +1503,6 @@ function toggleMute() {
                     return;
                 }
                 
-                // Create assets grid
                 let assetsHTML = `<div class="mb-4 text-sm text-gray-600">Total: ${data.total_assets} presentations</div>`;
                 
                 data.assets.forEach(asset => {
@@ -1081,7 +1520,6 @@ function toggleMute() {
                             </div>
                             
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <!-- Script -->
                                 <div class="border rounded p-3 bg-gray-50">
                                     <div class="flex items-center mb-2">
                                         <svg class="w-4 h-4 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1092,7 +1530,6 @@ function toggleMute() {
                                     <a href="${API_BASE}${asset.script_url}" target="_blank" class="text-blue-600 hover:underline text-sm">View Script</a>
                                 </div>
                                 
-                                <!-- PDF -->
                                 <div class="border rounded p-3 bg-gray-50">
                                     <div class="flex items-center mb-2">
                                         <svg class="w-4 h-4 mr-2 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1106,7 +1543,6 @@ function toggleMute() {
                                     }
                                 </div>
                                 
-                                <!-- Video -->
                                 <div class="border rounded p-3 bg-gray-50">
                                     <div class="flex items-center mb-2">
                                         <svg class="w-4 h-4 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

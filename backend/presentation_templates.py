@@ -1010,7 +1010,6 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
           {% endif %}
           <div class="title-slide-content">
             <h1>{{ slide.title }}</h1>
-            <div class="title-slide-subtitle">Educational Presentation</div>
           </div>
         </section>
       {% elif slide.type == 'section' %}
