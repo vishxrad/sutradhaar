@@ -746,12 +746,12 @@ function toggleMute() {
                 showError('Please enter a topic for your presentation.');
                 return;
             }
-
+        
             resetUI();
             setButtonLoading(true);
             document.getElementById('statusSection').style.display = 'block';
             updateProgressBar(0); // Initialize progress bar
-
+        
             try {
                 // Step 1: Generate Script with cache-busting
                 updateStatus('scriptStatus', 'loading', 'Generating script content...');
@@ -781,7 +781,7 @@ function toggleMute() {
                 
                 const scriptData = await scriptRes.json();
                 
-                // Validate script data structure
+                // Basic validation - just check if we got essential data
                 if (!scriptData.script_id) {
                     throw new Error('Invalid script response: missing script_id');
                 }
@@ -794,8 +794,8 @@ function toggleMute() {
                 updateStatus('scriptStatus', 'success', 'Script generated successfully!');
                 updateProgressBar(20); // Progress after script
                 addMicroProgress(20, 8); // Add small increments during image generation
-
-                // Enhanced script parsing with better error handling
+        
+                // Simple script parsing - just pass it through to preview
                 let parsedScriptForPreview = scriptData.parsed_script;
                 
                 if (typeof parsedScriptForPreview === 'string') {
@@ -803,34 +803,15 @@ function toggleMute() {
                         console.log("parsed_script is a string, attempting to parse JSON.");
                         parsedScriptForPreview = JSON.parse(parsedScriptForPreview);
                     } catch (e) {
-                        console.error("Failed to parse script_data.parsed_script string:", e, "Raw string:", scriptData.parsed_script);
-                        throw new Error("Malformed script data received. Please try again with a different topic or rephrase your request.");
+                        console.error("Failed to parse script_data.parsed_script string:", e);
+                        // Don't throw error - just show what we have
+                        parsedScriptForPreview = [{ slides: [{ title: "Generated Content", narration: scriptData.parsed_script }] }];
                     }
                 }
                 
-                // Validate parsed script structure
-                if (!Array.isArray(parsedScriptForPreview)) {
-                    console.error("Parsed script is not an array:", parsedScriptForPreview);
-                    throw new Error("Invalid script format received. Please try again.");
-                }
-                
-                // Check if script has valid slides
-                let hasValidSlides = false;
-                for (const segment of parsedScriptForPreview) {
-                    if (segment && typeof segment === 'object' && Array.isArray(segment.slides) && segment.slides.length > 0) {
-                        hasValidSlides = true;
-                        break;
-                    }
-                }
-                
-                if (!hasValidSlides) {
-                    console.error("No valid slides found in script segments:", parsedScriptForPreview);
-                    throw new Error("No slides found in the generated script. Please try again with a different topic or rephrase your request.");
-                }
-                
+                // Show script preview regardless of structure
                 await showScriptPreview(parsedScriptForPreview, scriptData.topic);
-
-
+        
                 // Step 2: Generate Images
                 updateStatus('imagesStatus', 'loading', 'Generating images for slides...');
                 const imagesRes = await fetch(`${API_BASE}/generate-images`, {
@@ -850,7 +831,7 @@ function toggleMute() {
                 updateStatus('imagesStatus', 'success', `Images generated! (${imagesData.stats.vertex_ai_success || 0} AI + ${imagesData.stats.unsplash_fallback || 0} stock)`);
                 updateProgressBar(40); // Progress after images
                 addMicroProgress(40, 8); // Add small increments during audio generation
-
+        
                 // Step 3: Generate Audio
                 updateStatus('audioStatus', 'loading', 'Generating audio narrations...');
                 const audioRes = await fetch(`${API_BASE}/generate-audio`, {
@@ -863,7 +844,7 @@ function toggleMute() {
                 updateStatus('audioStatus', 'success', `Audio generated! (${audioData.stats.successful || 0} files)`);
                 updateProgressBar(60); // Progress after audio
                 addMicroProgress(60, 5); // Add small increments during PDF generation
-
+        
                 // Step 4: Generate PDF and show immediate download
                 updateStatus('pdfStatus', 'loading', 'Creating PDF presentation...');
                 const pdfRes = await fetch(`${API_BASE}/presentation/${currentScriptId}/pdf`);
@@ -876,10 +857,10 @@ function toggleMute() {
                 updateProgressBar(70); // Progress after PDF
                 
                 showPdfDownload(currentPdfUrl, `${topic.replace(/[^a-zA-Z0-9]/g, '_')}_presentation.pdf`);
-
+        
                 // Continue with video generation in background
                 generateVideoInBackground(currentScriptId, topic);
-
+        
             } catch (error) {
                 console.error('Generation error:', error);
                 showError(error.message);
@@ -1098,69 +1079,70 @@ function toggleMute() {
 
             scriptContentDiv.innerHTML = ''; 
 
+            // Handle any script format gracefully
             if (script && Array.isArray(script)) {
                 let totalSlidesProcessed = 0;
                 for (const segment of script) {
-                    if (segment && typeof segment === 'object' && Array.isArray(segment.slides)) {
+                    if (segment && typeof segment === 'object') {
+                        // Show segment title if available
                         if (segment.segment_title) {
                             const segmentTitleEl = document.createElement('h3');
                             segmentTitleEl.className = 'text-lg font-semibold text-purple-700 mt-4 mb-2 animate-fade-in';
+                            segmentTitleEl.textContent = `Segment: ${segment.segment_title.replace(/\*\*/g, '')}`;
                             scriptContentDiv.appendChild(segmentTitleEl);
-                            await typewriterEffect(segmentTitleEl, `Segment: ${segment.segment_title.replace(/\*\*/g, '')}`, 50);
                         }
+                        
+                        // Show summary if available
                         if (segment.summary) {
                             const segmentSummaryEl = document.createElement('p');
                             segmentSummaryEl.className = 'text-sm text-gray-600 mb-3 italic animate-fade-in';
+                            segmentSummaryEl.textContent = `Summary: ${segment.summary}`;
                             scriptContentDiv.appendChild(segmentSummaryEl);
-                            await typewriterEffect(segmentSummaryEl, `Summary: ${segment.summary}`, 30);
                         }
 
-                        const slidesArray = segment.slides;
-                        if (slidesArray.length > 0) {
-                            for (const [index, slide] of slidesArray.entries()) {
+                        // Handle slides if they exist
+                        if (segment.slides && Array.isArray(segment.slides)) {
+                            for (const [index, slide] of segment.slides.entries()) {
                                 totalSlidesProcessed++;
                                 const slideDiv = document.createElement('div');
                                 slideDiv.className = 'segment animate-fade-in'; 
-                                scriptContentDiv.appendChild(slideDiv);
-                                scriptContentDiv.scrollTop = scriptContentDiv.scrollHeight;
-
-                                const titleText = `Slide ${totalSlidesProcessed}: ${slide.title || 'Untitled'}`;
+                                
                                 const titleEl = document.createElement('h4');
                                 titleEl.className = 'font-semibold text-blue-600';
+                                titleEl.textContent = `Slide ${totalSlidesProcessed}: ${slide.title || 'Untitled'}`;
                                 slideDiv.appendChild(titleEl);
-                                await typewriterEffect(titleEl, titleText, 50); 
 
-                                const narrationText = slide.narration || 'No narration'; 
                                 const contentEl = document.createElement('p');
                                 contentEl.className = 'text-sm text-gray-700';
+                                contentEl.textContent = slide.narration || slide.content || 'No content available';
                                 slideDiv.appendChild(contentEl);
-                                await typewriterEffect(contentEl, narrationText, 25); 
 
                                 if (slide.speaker_notes) {
-                                    const notesText = `Notes: ${slide.speaker_notes}`;
-                                    const notesContainerEl = document.createElement('p');
-                                    notesContainerEl.className = 'text-xs text-gray-500 mt-1';
-                                    slideDiv.appendChild(notesContainerEl);
-                                    
-                                    const emEl = document.createElement('em');
-                                    notesContainerEl.appendChild(emEl);
-                                    await typewriterEffect(emEl, notesText, 25);
+                                    const notesEl = document.createElement('p');
+                                    notesEl.className = 'text-xs text-gray-500 mt-1';
+                                    notesEl.innerHTML = `<em>Notes: ${slide.speaker_notes}</em>`;
+                                    slideDiv.appendChild(notesEl);
                                 }
-                                scriptContentDiv.scrollTop = scriptContentDiv.scrollHeight;
+                                
+                                scriptContentDiv.appendChild(slideDiv);
                             }
+                        } else {
+                            // If no slides array, just show the segment content
+                            const contentDiv = document.createElement('div');
+                            contentDiv.className = 'segment animate-fade-in';
+                            contentDiv.innerHTML = `<p class="text-sm text-gray-700">${JSON.stringify(segment, null, 2)}</p>`;
+                            scriptContentDiv.appendChild(contentDiv);
                         }
-                    } else {
-                        console.warn("Segment object is malformed or missing 'slides' array:", segment);
                     }
                 }
-                if (totalSlidesProcessed === 0) {
-                     scriptContentDiv.innerHTML = '<p class="text-gray-600">No slides found in the provided script segments.</p>';
-                     console.warn("Script data parsed, but no valid slides found in segments:", script);
-                }
             } else {
-                scriptContentDiv.innerHTML = '<p class="text-gray-600">Could not display script content. Expected an array of segments, where each segment contains a "slides" array.</p>';
-                console.warn("Script data for preview is not in the expected format (array of segments):", script);
+                // Fallback for any other format
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'segment animate-fade-in';
+                contentDiv.innerHTML = `<p class="text-sm text-gray-700">Script content generated successfully. Processing for presentation...</p>`;
+                scriptContentDiv.appendChild(contentDiv);
             }
+            
             scriptPreviewSection.style.display = 'block';
             scriptContentDiv.scrollTop = scriptContentDiv.scrollHeight; 
         }

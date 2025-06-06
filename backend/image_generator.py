@@ -32,7 +32,7 @@ class VertexImageGenerator:
             vertexai.init(project=project_id, location=location)
             
             # Initialize the ImageGenerationModel
-            self.model = ImageGenerationModel.from_pretrained("imagegeneration@006")
+            self.model = ImageGenerationModel.from_pretrained("imagen-4.0-generate-preview-05-20")
             logger.info(f"Successfully initialized Vertex AI Image Generator with project {project_id}")
             
         except Exception as e:

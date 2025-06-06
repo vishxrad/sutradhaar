@@ -94,7 +94,10 @@ def fetch_frontend():
 if "OPENAI_API_KEY" not in os.environ:
     print("Warning: OPENAI_API_KEY environment variable not set.")
 
-client = openai.OpenAI()
+client = openai.OpenAI(
+    # base_url=os.getenv("OPENAI_BASE_URL", "https://api.studio.nebius.com/v1/"),
+    api_key=os.getenv("OPENAI_API_KEY")
+)
 
 # Initialize Vertex AI Image Generator
 GOOGLE_CLOUD_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -792,18 +795,18 @@ def generate_script(request: ScriptRequest):
     
     prompt = f"""You are a scriptwriter for an educational explainer video.
     The video will cover the topic: "{topic}" and should be structured into 5 distinct educational segments.
-    The total narration for the entire video should be approximately 5 minutes.
+    The total narration for the entire video should be approximately 5 minutes. Make sure not to use any special characters like inverted commas, apostrophes, etc. or anything with a full stop that is not a full stop (like using e.g. or etc., instead use the full words like example or etectra)
 
     For each of the 5 segments:
     - The total narration for the segment should be approximately 1 minute (around 150 words).
-    - Provide a segment title.
+    - Provide a segment 
     - Provide a short summary of the segment.
     - Divide the segment into 4 slides.
         For each of the 4 slides:
         - Provide a short title (max 5 words).
         - Write a narration script of approximately 30 words (so that 4 slides total ~150 words for the segment).
         - Generate multiple shorter sentences instead of paragraphs.
-        - Suggest a visual description (image prompt for an AI image generator or Unsplash search). Make sure the prompt is not very complex and easy to understand by text to image models.
+        - Suggest a visual description (image prompt for an AI image generator or Unsplash search). Make sure the prompt is not very complex and easy to understand by text to image models. Put in extra effort to make sure the images generated are as realistic and don't make the model hallucinate. Explain all the characterstics like lighting, number of objects etc in detail.
 
     Format the output cleanly, following this structure for each segment:
 
@@ -880,7 +883,7 @@ async def generate_images(request: ImageRequest):
     tasks = []
     
     # 1. Generate overview image for the entire presentation
-    overview_prompt = f"Create a professional, educational overview image representing the topic: {script_data['topic']}. The image should be suitable as a cover or title slide for an educational presentation. Use modern, clean design with relevant visual elements that capture the essence of the topic. Style: professional, educational, high-quality. Make sure the image does not contain any text."
+    overview_prompt = f"Create a professional, educational overview image representing the topic: {script_data['topic']}. The image should be suitable as a cover or title slide for an educational presentation. Use modern, clean design with relevant visual elements that capture the essence of the topic. Style: professional, educational, high-quality."
     
     overview_slide_info = {
         "title": f"Overview: {script_data['topic']}",
@@ -2797,8 +2800,6 @@ def compress_pdf_ghostscript(input_path: str, output_path: str, quality: str = "
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-# Update your PDF endpoint
-# ...existing code...
         # After PDF generation, add compression
         if os.path.exists(pdf_path):
             temp_compressed = pdf_path.replace('.pdf', '_temp_compressed.pdf')

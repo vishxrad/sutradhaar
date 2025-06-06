@@ -596,7 +596,7 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
     
     .main-image-dominant .content-container {
       display: grid;
-      grid-template-columns: 70% 30%;
+      grid-template-columns: 60% 40%;
       gap: 60px;
       max-width: 1700px;
       margin: 0 auto;
@@ -672,7 +672,6 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
       grid-template-columns: 30% 70%;
       gap: 60px;
       max-width: 1700px;
-      margin: 0 auto;
       height: auto; /* Changed from 100% to auto */
       align-items: center;
       flex: 1; /* Add this to take remaining space */
@@ -825,9 +824,8 @@ def generate_html_template(topic: str, slides: list, theme: dict, script_id: str
     .main-text-focus .focus-content {
       display: grid;
       grid-template-columns: 1fr 700px;
-      gap: 60px;
+      gap: 25px;
       max-width: 1600px;
-      margin: 0 auto;
       align-items: center;
       position: relative;
       z-index: 2;
