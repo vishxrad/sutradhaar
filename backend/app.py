@@ -22,7 +22,7 @@ import base64
 from pathlib import Path
 from PIL import Image
 import io
-from presentation_templates import generate_html_template, get_theme_colors
+from presentation_templates import create_presentation
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import texttospeech
 from pdf2image import convert_from_path
@@ -30,6 +30,7 @@ import subprocess
 import tempfile
 import shutil
 import glob
+from enum import Enum
 
 # Import all database functions from the new file
 from database import (
@@ -96,8 +97,37 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # Pydantic models for request bodies
+
+class VideoType(str, Enum):
+    SUMMARY = "summary"
+    RECAP = "recap"
+    EXPLAINER = "explainer"
+
+DURATION_MAPPING = {
+    VideoType.SUMMARY: 1,
+    VideoType.RECAP: 2,
+    VideoType.EXPLAINER: 5,
+}
+
+
 class ScriptRequest(BaseModel):
     topic: str
+    video_type: VideoType = Field(
+        default=VideoType.EXPLAINER,
+        description="The type of video to generate.",
+    )
+
+
+class TemplateName(str, Enum):
+    MODERN = "modern"
+    CRIMSON = "crimson"
+
+class PresentationPDFRequest(BaseModel):
+    script_id: str
+    template: TemplateName = Field(
+        default=TemplateName.MODERN,
+        description="The name of the presentation template to use."
+    )
 
 
 class ImageRequest(BaseModel):
@@ -142,7 +172,10 @@ class CombineVideosRequest(BaseModel):
 if "OPENAI_API_KEY" not in os.environ:
     print("Warning: OPENAI_API_KEY environment variable not set.")
 
-client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = openai.OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY_Original"),
+    base_url=os.getenv("OPENAI_BASE_URL", "https://api.studio.nebius.com/v1/"),
+)
 
 # Initialize Vertex AI Image Generator
 GOOGLE_CLOUD_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -162,58 +195,68 @@ else:
 # --- APPLICATION HELPER FUNCTIONS ---
 # (These are NOT database functions)
 
+import re
+
+# In main.py, replace the parse_script_data function
+
+# In main.py, update the parse_script_data function
+
 def parse_script_data(script_text):
     """
-    Parses the script text from an LLM into a structured format.
+    Parses script text, handling and CLEANING conditional visual types.
     """
-    segments_data = []
-    
-    segment_pattern = re.compile(
-        r"Segment\s*\d+\s*:\s*(?P<title>[^\n]+?)\s*"
-        r"(?:Summary:\s*(?P<summary>.*?)\s*)?"
-        r"\s*(?P<slides_block>Slide\s*\d+:.*?)"
-        r"(?=(Segment\s*\d+\s*:|$))",
-        re.DOTALL | re.IGNORECASE
-    )
-    
+    slides_data = []
     slide_pattern = re.compile(
-        r"Slide\s*\d+\s*:\s*Title:\s*(?P<slide_title>.*?)\s*"
+        r"Slide\s*\d+\s*:\s*"
+        r"Title:\s*(?P<title>.*?)\s*"
         r"Narration:\s*(?P<narration>.*?)\s*"
-        r"(?:Image prompt:\s*(?P<image_prompt>.*?)\s*)?"
-        r"(?=(Slide\s*\d+\s*:|Segment\s*\d+\s*:|$))",
-        re.DOTALL | re.IGNORECASE
+        r"Slide content:\s*(?P<slide_content>.*?)\s*"
+        r"visual_type:\s*(?P<visual_type>\w+)\s*"
+        r"(?P<visual_data>.*?)"
+        r"(?=(Slide\s*\d+\s*:|$))",
+        re.DOTALL | re.IGNORECASE,
     )
 
-    for segment_match in segment_pattern.finditer(script_text):
-        title = segment_match.group("title").strip()
-        title = title.strip('*').strip()  # Remove leading/trailing asterisks and whitespace
+    for match in slide_pattern.finditer(script_text):
+        groups = match.groupdict()
         
-        summary_text = segment_match.group("summary")
-        current_summary = summary_text.strip() if summary_text else ""
-        
-        slides_block_text = segment_match.group("slides_block")
-        
-        slides_list = []
-        if slides_block_text:
-            for slide_match in slide_pattern.finditer(slides_block_text):
-                slide_title = slide_match.group("slide_title").strip()
-                slide_narration = slide_match.group("narration").strip()
-                
-                image_prompt_text = slide_match.group("image_prompt")
-                current_image_prompt = image_prompt_text.strip() if image_prompt_text else ""
-                
-                slides_list.append({
-                    "title": slide_title,
-                    "narration": slide_narration,
-                    "image_prompt": current_image_prompt
-                })
-        
-        segments_data.append({
-            "segment_title": title,
-            "summary": current_summary,
-            "slides": slides_list
-        })
-    return segments_data
+        raw_content = groups.get("slide_content", "").strip()
+        content_points = [
+            line.strip().lstrip("- ").strip()
+            for line in raw_content.split("\n")
+            if line.strip()
+        ]
+
+        slide_info = {
+            "title": groups.get("title", "").strip(),
+            "narration": groups.get("narration", "").strip(),
+            "slide_content": content_points,
+            "visual_type": groups.get("visual_type", "ai_image").strip(),
+        }
+
+        visual_data = groups.get("visual_data", "").strip()
+        if slide_info["visual_type"] == "ai_image":
+            prompt_match = re.search(r"image_prompt:\s*(.*)", visual_data, re.DOTALL)
+            slide_info["image_prompt"] = prompt_match.group(1).strip() if prompt_match else ""
+        elif slide_info["visual_type"] == "chart":
+            data_match = re.search(r"chart_data:\s*({.*})", visual_data, re.DOTALL)
+            slide_info["chart_data"] = data_match.group(1).strip() if data_match else "{}"
+        elif slide_info["visual_type"] == "flowchart":
+            code_match = re.search(r"flowchart_code:\s*(.*)", visual_data, re.DOTALL)
+            if code_match:
+                # --- THIS IS THE FIX ---
+                # Clean the mermaid code: remove trailing junk like '---'
+                mermaid_code = code_match.group(1).strip()
+                slide_info["flowchart_code"] = mermaid_code.strip().rstrip(';').strip().rstrip('-').strip()
+            else:
+                slide_info["flowchart_code"] = ""
+            
+        slides_data.append(slide_info)
+
+    return slides_data
+
+
+
 
 async def generate_vertex_ai_image_async(image_generator, prompt: str, output_dir: str, filename_prefix: str, max_retries: int = 2) -> Optional[str]:
     """
@@ -307,89 +350,144 @@ async def download_unsplash_image_async(image_url: str, output_dir: str, filenam
         print(f"Error downloading Unsplash image from '{image_url}': {e}")
         return None
 
-async def generate_single_image_with_fallback(
-    image_generator,
-    slide_info: dict,
-    segment_idx: int,
-    slide_idx: int,
-    script_id: str,
-    use_unsplash_fallback: bool = True
+async def generate_visual_for_slide(
+    slide_info: dict, slide_idx: int, script_id: str, use_unsplash_fallback: bool
 ) -> dict:
     """
-    Generate a single image with Vertex AI and fallback to Unsplash if needed
+    Dispatcher function that generates a visual based on the slide's 'visual_type'.
     """
-    slide_key = f"segment_{segment_idx}_slide_{slide_idx}"
-    segment_title = slide_info.get('segment_title', f'segment_{segment_idx}')
-    segment_summary = slide_info.get('segment_summary', '')
-    slide_title = slide_info.get('title', f'slide_{slide_idx}')
-    slide_narration = slide_info.get('narration', '')
-    image_prompt = slide_info.get('image_prompt', '')
+    visual_type = slide_info.get("visual_type", "ai_image")
+    output_dir = f"generated_images/{script_id}"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Use a unique filename for each slide
+    filename_prefix = f"slide_{slide_idx:02d}"
     
     result = {
-        "slide_key": slide_key,
-        "segment_title": segment_title,
-        "segment_summary": segment_summary,
-        "slide_title": slide_title,
-        "slide_narration": slide_narration,
-        "image_prompt": image_prompt,
+        "slide_key": f"slide_{slide_idx}",
+        "slide_title": slide_info.get("title"),
+        "visual_type": visual_type,
         "image_path": None,
-        "unsplash_url": None,
         "source": "failed",
         "error": None
     }
-    
-    if not image_prompt:
-        result["error"] = "No image prompt provided"
-        return result
-    
-    output_dir = f"generated_images/{script_id}"
-    filename_prefix = f"seg{segment_idx}_slide{slide_idx}"
-    
+
     try:
-        vertex_ai_path = await generate_vertex_ai_image_async(
-            image_generator,
-            image_prompt,
-            output_dir,
-            filename_prefix,
-            max_retries=2
+        if visual_type == "chart":
+            chart_data = slide_info.get("chart_data")
+            if not chart_data:
+                raise ValueError("Chart data is missing.")
+            output_path = os.path.join(output_dir, f"{filename_prefix}_chart.png")
+            result["image_path"] = await generate_plotly_chart_image(chart_data, output_path)
+            result["source"] = "plotly"
+
+        elif visual_type == "flowchart":
+            mermaid_code = slide_info.get("flowchart_code")
+            if not mermaid_code:
+                raise ValueError("Flowchart code is missing.")
+            output_path = os.path.join(output_dir, f"{filename_prefix}_flowchart.png")
+            result["image_path"] = await generate_mermaid_diagram_image(mermaid_code, output_path)
+            result["source"] = "mermaid"
+
+        else: # Default to 'ai_image'
+            image_prompt = slide_info.get("image_prompt")
+            if not image_prompt:
+                raise ValueError("AI image prompt is missing.")
+            
+            # Reuse the existing Vertex AI + Unsplash logic
+            vertex_path = await generate_vertex_ai_image_async(image_generator, image_prompt, output_dir, filename_prefix)
+            if vertex_path:
+                result["image_path"] = vertex_path
+                result["source"] = "vertex_ai"
+            elif use_unsplash_fallback:
+                unsplash_url = await search_unsplash_image_async(image_prompt)
+                if unsplash_url:
+                    unsplash_path = await download_unsplash_image_async(unsplash_url, output_dir, f"{filename_prefix}_unsplash")
+                    if unsplash_path:
+                        result["image_path"] = unsplash_path
+                        result["source"] = "unsplash"
+                    else:
+                        raise Exception("Unsplash download failed.")
+                else:
+                    raise Exception("Vertex AI and Unsplash search both failed.")
+            else:
+                raise Exception("Vertex AI failed and Unsplash fallback is disabled.")
+
+    except Exception as e:
+        result["error"] = str(e)
+        print(f"Failed to generate visual for slide {slide_idx}: {e}")
+
+    return result
+
+# Add these helper functions near your other helpers in main.py
+
+import plotly.graph_objects as go
+import json
+
+async def generate_plotly_chart_image(chart_data: str, output_path: str) -> str:
+    """
+    Generates a chart image from JSON data using Plotly.
+    """
+    try:
+        data = json.loads(chart_data)
+        fig_type = data.get("type", "bar")
+        
+        if fig_type == "bar":
+            fig = go.Figure(data=[go.Bar(x=data.get("x"), y=data.get("y"))])
+        elif fig_type == "pie":
+            fig = go.Figure(data=[go.Pie(labels=data.get("labels"), values=data.get("values"))])
+        elif fig_type == "line":
+            fig = go.Figure(data=[go.Scatter(x=data.get("x"), y=data.get("y"), mode='lines+markers')])
+        else: # Default to bar chart if type is unknown
+            fig = go.Figure(data=[go.Bar(x=data.get("x"), y=data.get("y"))])
+
+        fig.update_layout(
+            title_text=data.get("title", "Chart"),
+            template="plotly_white",
+            font=dict(family="Arial, sans-serif", size=18, color="black")
         )
         
-        if vertex_ai_path:
-            result["image_path"] = vertex_ai_path
-            result["source"] = "vertex_ai"
-            return result
-            
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        # Use asyncio.to_thread to run the blocking I/O operation
+        await asyncio.to_thread(fig.write_image, output_path, width=1280, height=720, scale=1)
+        
+        print(f"Plotly chart saved to {output_path}")
+        return output_path
     except Exception as e:
-        result["error"] = f"Vertex AI failed: {str(e)}"
-        print(f"Vertex AI failed for '{image_prompt}': {str(e)}")
+        print(f"Error generating Plotly chart: {e}")
+        raise  # Re-raise the exception to be caught by the caller
+
+async def generate_mermaid_diagram_image(mermaid_code: str, output_path: str) -> str:
+    """
+    Generates a diagram image from Mermaid syntax using mermaid-cli.
+    """
+    if shutil.which("mmdc") is None:
+        raise RuntimeError("mermaid-cli (mmdc) not found. Please run 'npm install -g @mermaid-js/mermaid-cli'")
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
-    if use_unsplash_fallback:
-        try:
-            unsplash_url = await search_unsplash_image_async(image_prompt)
-            if unsplash_url:
-                result["unsplash_url"] = unsplash_url
-                
-                unsplash_filename = f"{filename_prefix}_unsplash"
-                unsplash_local_path = await download_unsplash_image_async(
-                    unsplash_url, 
-                    output_dir, 
-                    unsplash_filename
-                )
-                
-                if unsplash_local_path:
-                    result["image_path"] = unsplash_local_path
-                    result["source"] = "unsplash"
-                    return result
-                else:
-                    result["error"] = "Unsplash URL found but download failed"
-            else:
-                result["error"] = "Both Vertex AI and Unsplash failed"
-        except Exception as e:
-            result["error"] = f"Both Vertex AI and Unsplash failed. Unsplash error: {str(e)}"
-    else:
-        result["error"] = "Vertex AI failed and Unsplash fallback disabled"
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.mmd', delete=False) as temp_mmd:
+        temp_mmd.write(mermaid_code)
+        temp_mmd_path = temp_mmd.name
+
+    cmd = ["mmdc", "-i", temp_mmd_path, "-o", output_path, "-w", "1280", "-H", "720"]
     
-    return result
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            raise Exception(f"Mermaid-cli failed: {stderr.decode()}")
+        
+        print(f"Mermaid diagram saved to {output_path}")
+        return output_path
+    finally:
+        if os.path.exists(temp_mmd_path):
+            os.remove(temp_mmd_path)
+
 
 async def synthesize_text_async(text: str, speaker: str, output_path: str) -> bool:
     """Async wrapper for Google Text-to-Speech synthesis"""
@@ -629,83 +727,130 @@ def fetch_frontend():
 @app.post("/generate-script")
 def generate_script(request: ScriptRequest):
     """
-    Generate a script for the given topic using OpenAI and save to database
+    Generate a script with narration and on-screen content for each slide.
     """
     topic = request.topic
-    
-    prompt = f"""You are a scriptwriter for an educational explainer video.
-    The video will cover the topic: "{topic}" and should be structured into 5 distinct educational segments.
-    The total narration for the entire video should be approximately 5 minutes. Make sure not to use any special characters like inverted commas, apostrophes, etc. or anything with a full stop that is not a full stop (like using e.g. or etc., instead use the full words like example or etectra)
+    video_type = request.video_type
+    duration_in_minutes = DURATION_MAPPING[video_type]
 
-    For each of the 5 segments:
-    - The total narration for the segment should be approximately 1 minute (around 150 words).
-    - Provide a segment 
-    - Provide a short summary of the segment.
-    - Divide the segment into 4 slides.
-        For each of the 4 slides:
-        - Provide a short title (max 5 words).
-        - Write a narration script of approximately 30 words (so that 4 slides total ~150 words for the segment).
-        - Generate multiple shorter sentences instead of paragraphs.
-        - Suggest a visual description (image prompt for an AI image generator or Unsplash search). Make sure the prompt is not very complex and easy to understand by text to image models. Put in extra effort to make sure the images generated are as realistic and don't make the model hallucinate. Explain all the characterstics like lighting, number of objects etc in detail.
+    slides_per_minute = 4
+    total_slides = duration_in_minutes * slides_per_minute
+    total_words = duration_in_minutes * 200
+    words_per_slide_narration = round(total_words / total_slides)
 
-    Format the output cleanly, following this structure for each segment:
+    # --- Updated Prompt ---
+    # In main.py, replace the prompt in the /generate-script endpoint
 
-    Segment 1: [Segment Title Here]
-    Summary: [Segment Summary Here]
+    prompt = f"""You are an expert scriptwriter and data visualizer for educational videos.
+    The video will cover the topic: "{topic}" and have {total_slides} slides.
+
+    For each of the {total_slides} slides, you must decide the best visual representation.
+    You have three choices for the 'visual_type':
+    1.  'ai_image': For conceptual, abstract, or general topics.
+    2.  'chart': For slides with clear numerical data, comparisons, or statistics.
+    3.  'flowchart': For processes, decision trees, or workflows.
+
+    Based on your choice, provide the corresponding data with these STRICT rules:
+    - If 'visual_type' is 'ai_image', provide an 'image_prompt'.
+    - If 'visual_type' is 'chart', provide 'chart_data' as a valid JSON object. You MUST generate plausible sample data. The 'x', 'y', 'labels', and 'values' fields must ALWAYS be JSON arrays (lists), NOT single strings.
+    - If 'visual_type' is 'flowchart', provide clean 'flowchart_code' using Mermaid syntax. Do NOT add any extra characters like '---' at the end.
+
+    Format the output for each slide EXACTLY as shown in the examples below.
+
+    ---
+    EXAMPLE FOR AI IMAGE:
     Slide 1:
-    Title: [Slide 1 Title]
-    Narration: [Slide 1 Narration - approx 30 words]
-    Image prompt: [Slide 1 Image Prompt]
-    Slide 2:
-    Title: [Slide 2 Title]
-    Narration: [Slide 2 Narration - approx 30 words]
-    Image prompt: [Slide 2 Image Prompt]
-    Slide 3:
-    Title: [Slide 3 Title]
-    Narration: [Slide 3 Narration - approx 30 words]
-    Image prompt: [Slide 3 Image Prompt]
-    Slide 4:
-    Title: [Slide 4 Title]
-    Narration: [Slide 4 Narration - approx 30 words]
-    Image prompt: [Slide 4 Image Prompt]
+    Title: The Concept of Gravity
+    Narration: Gravity is the invisible force that pulls objects together. It's what keeps the planets in orbit around the sun and what keeps you on the ground.
+    Slide content:
+    - Invisible force pulling objects together
+    - Keeps planets in orbit
+    - Holds us on the ground
+    visual_type: ai_image
+    image_prompt: A majestic view of the solar system with glowing orbital lines around the sun, showing planets held in their paths, cosmic, educational style.
 
-    Ensure this structure is repeated for all 5 segments.
+    ---
+    EXAMPLE FOR CHART (BAR CHART):
+    Slide 2:
+    Title: Poverty Rates in Key Regions
+    Narration: Poverty remains a significant challenge, with rates varying across different regions. Some areas show higher concentrations of poverty than others.
+    Slide content:
+    - Region A: 25.4%
+    - Region B: 18.2%
+    - Region C: 32.5%
+    visual_type: chart
+    chart_data: {{"type": "bar", "title": "Poverty Rate by Region", "x": ["Region A", "Region B", "Region C"], "y": [25.4, 18.2, 32.5]}}
+
+    ---
+    EXAMPLE FOR CHART (PIE CHART):
+    Slide 3:
+    Title: Earth's Atmospheric Composition
+    Narration: Our atmosphere is a mix of gases. It's primarily composed of nitrogen and oxygen, with small amounts of other gases that are crucial for life.
+    Slide content:
+    - Nitrogen: ~78%
+    - Oxygen: ~21%
+    - Other Gases: ~1%
+    visual_type: chart
+    chart_data: {{"type": "pie", "title": "Atmospheric Composition", "labels": ["Nitrogen", "Oxygen", "Other"], "values": [78, 21, 1]}}
+
+    ---
+    EXAMPLE FOR FLOWCHART:
+    Slide 4:
+    Title: The Scientific Method
+    Narration: The scientific method is a structured process for inquiry. It starts with an observation, leads to a hypothesis, followed by experimentation, and finally, a conclusion.
+    Slide content:
+    - Start with an Observation
+    - Form a Hypothesis
+    - Conduct Experiment
+    - Analyze Data & Conclude
+    visual_type: flowchart
+    flowchart_code: graph TD; A[Observation] --> B(Form Hypothesis); B --> C{{Experiment}}; C --> D((Analyze Data)); D --> E[Conclusion];
+
+    ---
+    Now, generate the complete script for the topic "{topic}" following these strict rules and formats for all {total_slides} slides.
     """
 
     try:
+        # The rest of your endpoint logic remains the same...
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="Qwen/Qwen3-14B",
             messages=[
-                {"role": "system", "content": "You are a helpful scriptwriting assistant."},
-                {"role": "user", "content": prompt}
-            ]
+                {
+                    "role": "system",
+                    "content": "You are a helpful scriptwriting assistant.",
+                },
+                {"role": "user", "content": prompt},
+            ],
         )
         raw_script_data = response.choices[0].message.content
-        parsed_script_data = parse_script_data(raw_script_data)
-        
+        parsed_script_data = parse_script_data(raw_script_data) # This now needs the updated parser
         script_id = f"script_{int(time.time())}"
-        
-        # This now calls the function from database.py
-        if save_script_to_db(script_id, topic, raw_script_data, parsed_script_data):
+
+        if save_script_to_db(
+            script_id, topic, raw_script_data, parsed_script_data
+        ):
             return {
                 "script_id": script_id,
-                "topic": topic, 
+                "topic": topic,
                 "parsed_script": parsed_script_data,
-                "message": "Script generated and saved successfully."
+                "message": f"Script for '{video_type.value}' generated successfully.",
             }
         else:
-            raise HTTPException(status_code=500, detail="Failed to save script to database")
-        
+            raise HTTPException(
+                status_code=500, detail="Failed to save script to database"
+            )
+
     except openai.APIError as e:
         raise HTTPException(status_code=500, detail=f"OpenAI API Error: {e}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generating script: {e}")
-
+        raise HTTPException(
+            status_code=500, detail=f"Error generating script: {e}"
+        )
 
 @app.post("/generate-images")
 async def generate_images(request: ImageRequest):
     """
-    Generate images for a previously generated script in parallel and save to database.
+    Generate visuals for a script, dispatching to the appropriate generator.
     """
     script_id = request.script_id
     use_unsplash_fallback = request.use_unsplash_fallback
@@ -714,69 +859,45 @@ async def generate_images(request: ImageRequest):
     if not script_data:
         raise HTTPException(status_code=404, detail="Script not found.")
     
-    segments_data = script_data["parsed_script"]
+    # The new parser returns a flat list of slides
+    slides_data = script_data["parsed_script"]
     tasks = []
     
-    overview_prompt = f"Create a professional, educational overview image representing the topic: {script_data['topic']}. Style: professional, educational, high-quality."
-    overview_slide_info = {
-        "title": f"Overview: {script_data['topic']}",
-        "narration": f"Complete educational presentation covering {script_data['topic']}",
-        "image_prompt": overview_prompt,
-        "segment_title": "Presentation Overview",
-        "segment_summary": f"Comprehensive content about {script_data['topic']}"
-    }
-    tasks.append(generate_single_image_with_fallback(
-        image_generator, overview_slide_info, 0, 0, script_id, use_unsplash_fallback
-    ))
+    for idx, slide in enumerate(slides_data):
+        tasks.append(
+            generate_visual_for_slide(slide, idx + 1, script_id, use_unsplash_fallback)
+        )
     
-    for segment_idx, segment in enumerate(segments_data, 1):
-        for slide_idx, slide in enumerate(segment.get('slides', []), 1):
-            if slide.get('image_prompt', ''):
-                slide_info = {
-                    **slide,
-                    'segment_title': segment.get('segment_title', f'segment_{segment_idx}'),
-                    'segment_summary': segment.get('summary', '')
-                }
-                tasks.append(generate_single_image_with_fallback(
-                    image_generator, slide_info, segment_idx, slide_idx, script_id, use_unsplash_fallback
-                ))
-    
-    start_time = asyncio.get_event_loop().time()
-    results = await asyncio.gather(*tasks, return_exceptions=True) if tasks else []
-    end_time = asyncio.get_event_loop().time()
+    start_time = time.time()
+    results = await asyncio.gather(*tasks)
+    end_time = time.time()
     
     image_results = {
-        "script_id": script_id, "topic": script_data["topic"], "images": {},
+        "script_id": script_id,
+        "topic": script_data["topic"],
+        "images": {},
         "stats": {
-            "total_requested": len(tasks), "vertex_ai_success": 0,
-            "unsplash_fallback": 0, "failed": 0, "errors": [],
+            "total_requested": len(tasks),
+            "sources": {"vertex_ai": 0, "unsplash": 0, "plotly": 0, "mermaid": 0, "failed": 0},
+            "errors": [],
             "generation_time_seconds": round(end_time - start_time, 2)
         }
     }
     
-    for result in results:
-        if isinstance(result, Exception):
-            image_results["stats"]["failed"] += 1
-            image_results["stats"]["errors"].append(f"Task failed: {str(result)}")
-            continue
+    for res in results:
+        source = res["source"]
+        image_results["stats"]["sources"][source] += 1
+        if source == "failed" and res.get("error"):
+            image_results["stats"]["errors"].append(f"Slide {res['slide_key']}: {res['error']}")
         
-        if result["source"] == "vertex_ai":
-            image_results["stats"]["vertex_ai_success"] += 1
-        elif result["source"] == "unsplash":
-            image_results["stats"]["unsplash_fallback"] += 1
-        else:
-            image_results["stats"]["failed"] += 1
-            if result.get("error"):
-                image_results["stats"]["errors"].append(f"{result['slide_key']}: {result['error']}")
-        
-        image_results["images"][result["slide_key"]] = result
+        # Use the slide_key from the result for the dictionary
+        image_results["images"][res["slide_key"]] = res
     
     if image_results["images"]:
         if not save_images_to_db(script_id, image_results["images"]):
             image_results["warning"] = "Images generated but failed to save to database"
     
     return image_results
-
 
 @app.get("/script/{script_id}")
 def get_script(script_id: str):
@@ -814,157 +935,218 @@ def get_script_images(script_id: str):
 
 # PASTE THIS CODE INTO YOUR main.py FILE
 
-def generate_presentation_html(script_id: str):
+# def generate_presentation_html(script_id: str):
+#     """
+#     Generate a complete standalone HTML file for the presentation.
+#     This is a helper function and does not return a response.
+#     """
+#     # Get script data
+#     script_data = get_script_from_db(script_id)
+#     if not script_data:
+#         # This will be caught by the calling endpoint
+#         raise HTTPException(status_code=404, detail="Script not found")
+
+#     # Get images data
+#     images_data = get_images_from_db(script_id)
+
+#     # Build slides data
+#     slides = []
+
+#     # 1. Title Slide
+#     title_slide = {"type": "title", "title": script_data["topic"], "order": 1}
+
+#     overview_key = "segment_0_slide_0"
+#     if overview_key in images_data:
+#         overview_image_info = images_data[overview_key]
+#         if overview_image_info.get("image_path") and os.path.exists(
+#             overview_image_info["image_path"]
+#         ):
+#             try:
+#                 with open(overview_image_info["image_path"], "rb") as img_file:
+#                     image_data = img_file.read()
+#                     file_ext = Path(overview_image_info["image_path"]).suffix.lower()
+#                     mime_type = (
+#                         "image/jpeg" if file_ext in [".jpg", ".jpeg"] else "image/png"
+#                     )
+#                     image_base64 = f"data:{mime_type};base64,{base64.b64encode(image_data).decode()}"
+#                     title_slide["image_base64"] = image_base64
+#                     title_slide["image_alt"] = overview_image_info.get(
+#                         "image_prompt", f'Overview of {script_data["topic"]}'
+#                     )
+#             except Exception as e:
+#                 print(f"Error encoding overview image for title slide: {e}")
+
+#     slides.append(title_slide)
+
+#     # 2-6. Process 5 Segments (Section + 4 Main slides each)
+#     segments_data = script_data["parsed_script"]
+#     slide_order = 2
+#     main_slide_layouts = [
+#         "main",
+#         "main-image-dominant",
+#         "main-image-dominant-2",
+#         "main-text-focus",
+#     ]
+#     layout_index = 0
+
+#     for segment_idx, segment in enumerate(segments_data, 1):
+#         # Section Slide
+#         slides.append(
+#             {
+#                 "type": "section",
+#                 "title": segment.get("segment_title", f"Segment {segment_idx}"),
+#                 "body": segment.get("summary", ""),
+#                 "order": slide_order,
+#             }
+#         )
+#         slide_order += 1
+
+#         # 4 Main slides for this segment
+#         for slide_idx, slide in enumerate(segment.get("slides", []), 1):
+#             slide_key = f"segment_{segment_idx}_slide_{slide_idx}"
+#             image_info = images_data.get(slide_key, {})
+#             image_base64 = None
+#             if image_info.get("image_path") and os.path.exists(
+#                 image_info["image_path"]
+#             ):
+#                 try:
+#                     with open(image_info["image_path"], "rb") as img_file:
+#                         image_data = img_file.read()
+#                         file_ext = Path(image_info["image_path"]).suffix.lower()
+#                         mime_type = (
+#                             "image/jpeg"
+#                             if file_ext in [".jpg", ".jpeg"]
+#                             else "image/png"
+#                         )
+#                         image_base64 = f"data:{mime_type};base64,{base64.b64encode(image_data).decode()}"
+#                 except Exception as e:
+#                     print(f"Error encoding image {image_info['image_path']}: {e}")
+
+#             chosen_layout = main_slide_layouts[layout_index % len(main_slide_layouts)]
+#             layout_index += 1
+
+#             slides.append(
+#                 {
+#                     "type": chosen_layout,
+#                     "title": slide.get("title", f"Slide {slide_idx}"),
+#                     "body": slide.get("narration", ""),
+#                     "image_base64": image_base64,
+#                     "image_alt": slide.get("image_prompt", ""),
+#                     "order": slide_order,
+#                 }
+#             )
+#             slide_order += 1
+
+#     # 27. Thank You Slide
+#     slides.append(
+#         {
+#             "type": "thankyou",
+#             "title": "Thank You",
+#             "subtitle": "Made using Sutradhaar",
+#             "order": slide_order,
+#         }
+#     )
+
+#     # Generate theme colors
+#     theme_colors = get_theme_colors(images_data)
+
+#     # Generate HTML using template
+#     html_content = generate_html_template(
+#         topic=script_data["topic"],
+#         slides=slides,
+#         theme=theme_colors,
+#         script_id=script_id,
+#     )
+
+#     return {
+#         "script_id": script_id,
+#         "topic": script_data["topic"],
+#         "html_content": html_content,
+#         "filename": f"{script_id}_presentation.html",
+#     }
+
+
+# REPLACE the existing /generate-presentation/pdf endpoint in main.py with this
+
+@app.post("/generate-presentation/pdf", summary="Generate Presentation as PDF")
+async def generate_presentation_pdf(request: PresentationPDFRequest):
     """
-    Generate a complete standalone HTML file for the presentation.
-    This is a helper function and does not return a response.
+    Generate and return a PDF presentation using a selected template.
     """
-    # Get script data
+    script_id = request.script_id
+    template_name = request.template.value
+
+    # 1. Get all the necessary data from the database
     script_data = get_script_from_db(script_id)
     if not script_data:
-        # This will be caught by the calling endpoint
         raise HTTPException(status_code=404, detail="Script not found")
 
-    # Get images data
-    images_data = get_images_from_db(script_id)
+    images_data = get_images_from_db(script_id) or {}
+    parsed_slides = script_data.get("parsed_script", [])
 
-    # Build slides data
-    slides = []
-
-    # 1. Title Slide
-    title_slide = {"type": "title", "title": script_data["topic"], "order": 1}
-
-    overview_key = "segment_0_slide_0"
-    if overview_key in images_data:
-        overview_image_info = images_data[overview_key]
-        if overview_image_info.get("image_path") and os.path.exists(
-            overview_image_info["image_path"]
-        ):
-            try:
-                with open(overview_image_info["image_path"], "rb") as img_file:
-                    image_data = img_file.read()
-                    file_ext = Path(overview_image_info["image_path"]).suffix.lower()
-                    mime_type = (
-                        "image/jpeg" if file_ext in [".jpg", ".jpeg"] else "image/png"
-                    )
-                    image_base64 = f"data:{mime_type};base64,{base64.b64encode(image_data).decode()}"
-                    title_slide["image_base64"] = image_base64
-                    title_slide["image_alt"] = overview_image_info.get(
-                        "image_prompt", f'Overview of {script_data["topic"]}'
-                    )
-            except Exception as e:
-                print(f"Error encoding overview image for title slide: {e}")
-
-    slides.append(title_slide)
-
-    # 2-6. Process 5 Segments (Section + 4 Main slides each)
-    segments_data = script_data["parsed_script"]
-    slide_order = 2
-    main_slide_layouts = [
-        "main",
-        "main-image-dominant",
-        "main-image-dominant-2",
-        "main-text-focus",
-    ]
-    layout_index = 0
-
-    for segment_idx, segment in enumerate(segments_data, 1):
-        # Section Slide
-        slides.append(
-            {
-                "type": "section",
-                "title": segment.get("segment_title", f"Segment {segment_idx}"),
-                "body": segment.get("summary", ""),
-                "order": slide_order,
-            }
-        )
-        slide_order += 1
-
-        # 4 Main slides for this segment
-        for slide_idx, slide in enumerate(segment.get("slides", []), 1):
-            slide_key = f"segment_{segment_idx}_slide_{slide_idx}"
+    # 2. Transform the flat slides structure into the format expected by templates
+    try:
+        formatted_slides = []
+        
+        # Title slide
+        formatted_slides.append({
+            "type": "title",
+            "title": script_data["topic"],
+            "order": 1
+        })
+        
+        # Main content slides
+        for idx, slide in enumerate(parsed_slides, 2):
+            slide_key = f"slide_{idx-1}"  # slides are 1-indexed in images_data
             image_info = images_data.get(slide_key, {})
+            
+            # Convert image to base64 if available
             image_base64 = None
-            if image_info.get("image_path") and os.path.exists(
-                image_info["image_path"]
-            ):
+            if image_info.get("image_path") and os.path.exists(image_info["image_path"]):
                 try:
                     with open(image_info["image_path"], "rb") as img_file:
                         image_data = img_file.read()
                         file_ext = Path(image_info["image_path"]).suffix.lower()
-                        mime_type = (
-                            "image/jpeg"
-                            if file_ext in [".jpg", ".jpeg"]
-                            else "image/png"
-                        )
+                        mime_type = "image/jpeg" if file_ext in [".jpg", ".jpeg"] else "image/png"
                         image_base64 = f"data:{mime_type};base64,{base64.b64encode(image_data).decode()}"
                 except Exception as e:
                     print(f"Error encoding image {image_info['image_path']}: {e}")
-
-            chosen_layout = main_slide_layouts[layout_index % len(main_slide_layouts)]
-            layout_index += 1
-
-            slides.append(
-                {
-                    "type": chosen_layout,
-                    "title": slide.get("title", f"Slide {slide_idx}"),
-                    "body": slide.get("narration", ""),
-                    "image_base64": image_base64,
-                    "image_alt": slide.get("image_prompt", ""),
-                    "order": slide_order,
-                }
-            )
-            slide_order += 1
-
-    # 27. Thank You Slide
-    slides.append(
-        {
+            
+            formatted_slides.append({
+                "type": "main",
+                "title": slide.get("title", f"Slide {idx-1}"),
+                "body": slide.get("slide_content", []),  # This will be formatted by the template filter
+                "image_base64": image_base64,
+                "image_alt": slide.get("image_prompt", ""),
+                "order": idx
+            })
+        
+        # Thank you slide
+        formatted_slides.append({
             "type": "thankyou",
             "title": "Thank You",
             "subtitle": "Made using Sutradhaar",
-            "order": slide_order,
-        }
-    )
+            "order": len(formatted_slides) + 1
+        })
 
-    # Generate theme colors
-    theme_colors = get_theme_colors(images_data)
+        html_content = create_presentation(
+            topic=script_data["topic"],
+            slides=formatted_slides,
+            template_name=template_name,
+            images_data=images_data,
+            script_id=script_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate HTML: {e}")
 
-    # Generate HTML using template
-    html_content = generate_html_template(
-        topic=script_data["topic"],
-        slides=slides,
-        theme=theme_colors,
-        script_id=script_id,
-    )
-
-    return {
-        "script_id": script_id,
-        "topic": script_data["topic"],
-        "html_content": html_content,
-        "filename": f"{script_id}_presentation.html",
-    }
-
-
-@app.get("/presentation/{script_id}/pdf")
-async def generate_presentation_pdf(script_id: str):
-    """
-    Generate and return a PDF presentation using Decktape.
-    Also converts PDF to individual slide images and stores them.
-    """
-    script_data = get_script_from_db(script_id)
-    if not script_data:
-        raise HTTPException(status_code=404, detail="Script not found")
-
-    html_result = generate_presentation_html(script_id)
-    html_content = html_result["html_content"]
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as temp_html:
+    # 3. The rest of the PDF generation logic remains the same
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as temp_html:
         temp_html.write(html_content)
         temp_html_path = temp_html.name
     
     presentations_dir = "generated_presentations"
     os.makedirs(presentations_dir, exist_ok=True)
-    filename = f"{script_id}_presentation.pdf"
+    filename = f"{script_id}_{template_name}_presentation.pdf"
     pdf_path = os.path.join(presentations_dir, filename)
     
     try:
@@ -977,19 +1159,7 @@ async def generate_presentation_pdf(script_id: str):
         if not os.path.exists(pdf_path) or os.path.getsize(pdf_path) == 0:
             raise HTTPException(status_code=500, detail="PDF file was not created")
         
-        # Compress the PDF
-        temp_compressed = pdf_path.replace('.pdf', '_temp_compressed.pdf')
-        compression_result = compress_pdf_ghostscript(pdf_path, temp_compressed, "ebook")
-        
-        if compression_result["success"]:
-            os.replace(temp_compressed, pdf_path)
-            file_size = compression_result["compressed_size"]
-        else:
-            file_size = os.path.getsize(pdf_path)
-        
-        save_presentation_to_db(script_id, pdf_path, filename, file_size)
-        
-        # Convert PDF to images
+        save_presentation_to_db(script_id, pdf_path, filename, os.path.getsize(pdf_path))
         convert_pdf_to_images(script_id, pdf_path)
         
         return FileResponse(
@@ -997,10 +1167,6 @@ async def generate_presentation_pdf(script_id: str):
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
         
-    except Exception as e:
-        if os.path.exists(pdf_path):
-            os.unlink(pdf_path)
-        raise HTTPException(status_code=500, detail=f"Error generating PDF: {str(e)}")
     finally:
         if 'temp_html_path' in locals() and os.path.exists(temp_html_path):
             os.unlink(temp_html_path)
@@ -1031,10 +1197,13 @@ def get_presentation_images(script_id: str):
     }
 
 
+# REPLACE the existing /generate-audio endpoint in main.py with this
+
 @app.post("/generate-audio")
 async def generate_audio(request: AudioRequest):
     """
     Generate audio files for a script using Google Text-to-Speech.
+    This version works with the new flat slide structure.
     """
     script_id = request.script_id
     speaker = request.speaker.lower()
@@ -1043,51 +1212,40 @@ async def generate_audio(request: AudioRequest):
     if not script_data:
         raise HTTPException(status_code=404, detail="Script not found.")
     
-    images_data = get_images_from_db(script_id)
-    segments_data = script_data["parsed_script"]
+    # The script now has a flat structure
+    parsed_slides = script_data.get("parsed_script", [])
     audio_dir = f"generated_audio/{script_id}"
     os.makedirs(audio_dir, exist_ok=True)
     
     tasks_with_info = []
-    audio_counter = 1
     
-    # Title slide audio
+    # 1. Title slide audio
     title_text = f"Welcome to our presentation on {script_data['topic']}"
     tasks_with_info.append({
         "content": title_text, "speaker": speaker,
-        "path": os.path.join(audio_dir, f"audio_{audio_counter}.mp3"),
-        "key": "title_slide", "type": "title", "seg_idx": 0, "slide_idx": 0
+        "path": os.path.join(audio_dir, "audio_00.mp3"),
+        "key": "title_slide", "type": "title"
     })
-    audio_counter += 1
     
-    # Segment and slide audio
-    for seg_idx, segment in enumerate(segments_data, 1):
-        if segment.get('summary', '').strip():
+    # 2. Main slide audio from narration
+    for idx, slide in enumerate(parsed_slides, 1):
+        narration = slide.get('narration', '').strip()
+        if narration:
             tasks_with_info.append({
-                "content": segment['summary'], "speaker": speaker,
-                "path": os.path.join(audio_dir, f"audio_{audio_counter}.mp3"),
-                "key": f"summary_seg{seg_idx}", "type": "summary", "seg_idx": seg_idx, "slide_idx": None
+                "content": narration, "speaker": speaker,
+                "path": os.path.join(audio_dir, f"audio_{idx:02d}.mp3"),
+                "key": f"slide_{idx}", "type": "narration"
             })
-            audio_counter += 1
-        
-        for slide_idx, slide in enumerate(segment.get('slides', []), 1):
-            narration = images_data.get(f"segment_{seg_idx}_slide_{slide_idx}", {}).get('slide_narration', slide.get('narration', ''))
-            if narration.strip():
-                tasks_with_info.append({
-                    "content": narration, "speaker": speaker,
-                    "path": os.path.join(audio_dir, f"audio_{audio_counter}.mp3"),
-                    "key": f"narration_seg{seg_idx}_slide{slide_idx}", "type": "narration", "seg_idx": seg_idx, "slide_idx": slide_idx
-                })
-                audio_counter += 1
     
-    # Thank you slide audio
+    # 3. Thank you slide audio
     thank_you_text = "Thank you for your attention. This presentation was made using Sutradhaar."
     tasks_with_info.append({
         "content": thank_you_text, "speaker": speaker,
-        "path": os.path.join(audio_dir, f"audio_{audio_counter}.mp3"),
-        "key": "thank_you_slide", "type": "thank_you", "seg_idx": 99, "slide_idx": 99
+        "path": os.path.join(audio_dir, "audio_99.mp3"),
+        "key": "thank_you_slide", "type": "thank_you"
     })
     
+    # The rest of the logic is the same
     tts_tasks = [synthesize_text_async(t["content"], t["speaker"], t["path"]) for t in tasks_with_info]
     results = await asyncio.gather(*tts_tasks, return_exceptions=True)
     
@@ -1098,9 +1256,10 @@ async def generate_audio(request: AudioRequest):
         if result is True:
             successful_count += 1
             audio_files_to_save[task_info["key"]] = {
-                "audio_type": task_info["type"], "segment_idx": task_info["seg_idx"],
-                "slide_idx": task_info["slide_idx"], "content": task_info["content"],
-                "audio_path": task_info["path"], "speaker": task_info["speaker"]
+                "audio_type": task_info["type"],
+                "content": task_info["content"],
+                "audio_path": task_info["path"],
+                "speaker": task_info["speaker"]
             }
     
     if audio_files_to_save:
@@ -1271,6 +1430,3 @@ def get_all_assets():
     except Exception as e:
         print(f"Error retrieving all assets: {e}")
         raise HTTPException(status_code=500, detail=f"Error retrieving assets: {str(e)}")
-
-# The /combine-video-chunks endpoint was omitted for brevity but should be included
-# if you need transitions. The fast version is included above.
