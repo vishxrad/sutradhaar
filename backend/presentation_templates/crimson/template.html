@@ -40,7 +40,7 @@
       padding-top: 80px !important;
     }
 
-    /* --- Slide Layouts (Same as modern) --- */
+    /* --- Slide Layouts --- */
     .title-slide { padding: 0 !important; }
     .title-slide-background { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
     .title-slide-background img { width: 100%; height: 100%; object-fit: cover; filter: blur(2px) brightness(0.8); }
@@ -48,10 +48,50 @@
     .title-slide h1 { font-size: 120px; font-weight: 700; }
 
     .main-slide h2, .main-image-dominant h2, .main-image-dominant-2 h2, .main-text-focus h2 { font-size: 72px; margin-bottom: 50px; text-align: center; margin-top: 0; }
-    .main-slide-content { display: grid; grid-template-columns: 1fr 480px; gap: 80px; align-items: center; max-width: 1600px; margin: 0 auto; flex: 1; }
-    .main-slide-image img { width: 480px; height: 480px; object-fit: cover; border-radius: 30px; box-shadow: 0 20px 50px rgba(0,0,0,0.15); }
+    
+    /* Dynamic grid layout that adapts to image size */
+    .main-slide-content { 
+      display: grid; 
+      gap: 80px; 
+      align-items: center; 
+      max-width: 1600px; 
+      margin: 0 auto; 
+      flex: 1;
+      /* Default to equal columns, will be overridden by JavaScript */
+      grid-template-columns: 1fr 1fr;
+    }
+    
+    /* Flexible image container */
+    .main-slide-image { 
+      display: flex; 
+      justify-content: center; 
+      align-items: center;
+      min-width: 200px;
+      max-width: 800px;
+    }
+    
+    .main-slide-image img { 
+      max-width: 100%; 
+      max-height: 600px; 
+      width: auto; 
+      height: auto; 
+      object-fit: contain; 
+      border-radius: 30px; 
+      box-shadow: 0 20px 50px rgba(0,0,0,0.15);
+    }
+    
     .main-slide-text ul { font-size: 42px; line-height: 1.7; text-align: left; }
-    .no-image-placeholder { width: 100%; height: 100%; background: #ddd; border-radius: 30px; display: flex; align-items: center; justify-content: center; color: #666; font-size: 32px; }
+    .no-image-placeholder { 
+      width: 480px; 
+      height: 480px; 
+      background: #ddd; 
+      border-radius: 30px; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+      color: #666; 
+      font-size: 32px; 
+    }
 
     .thankyou-slide h3 { font-size: 108px; margin-bottom: 40px; }
     .thankyou-slide p { font-size: 48px; opacity: 0.9; }
@@ -75,7 +115,11 @@
           <div class="main-slide-content">
             <div class="main-slide-text">{{ slide.body | format_bullets | safe }}</div>
             <div class="main-slide-image">
-              {% if slide.image_base64 %}<img src="{{ slide.image_base64 }}" alt="{{ slide.image_alt }}">{% else %}<div class="no-image-placeholder">Visual Here</div>{% endif %}
+              {% if slide.image_base64 %}
+                <img src="{{ slide.image_base64 }}" alt="{{ slide.image_alt }}" onload="adjustGridLayout(this)">
+              {% else %}
+                <div class="no-image-placeholder">Visual Here</div>
+              {% endif %}
             </div>
           </div>
         </section>
@@ -90,9 +134,84 @@
 </div>
 <script src="https://cdn.jsdelivr.net/npm/reveal.js/dist/reveal.js"></script>
 <script>
-  function updateScale() { const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080); document.documentElement.style.setProperty('--reveal-scale', scale); }
-  Reveal.initialize({ width: 1920, height: 1080, margin: 0, controls: true, progress: true, center: false, hash: true, transition: 'slide' });
-  window.addEventListener('resize', updateScale); updateScale();
+  function updateScale() { 
+    const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080); 
+    document.documentElement.style.setProperty('--reveal-scale', scale); 
+  }
+  
+  function adjustGridLayout(imgElement) {
+    const container = imgElement.closest('.main-slide-content');
+    if (!container) return;
+    
+    // Get image dimensions
+    const imgWidth = imgElement.naturalWidth;
+    const imgHeight = imgElement.naturalHeight;
+    const aspectRatio = imgWidth / imgHeight;
+    
+    // Calculate optimal image display size
+    let displayWidth, displayHeight;
+    const maxWidth = 800;
+    const maxHeight = 600;
+    
+    if (aspectRatio > maxWidth / maxHeight) {
+      // Width-constrained
+      displayWidth = Math.min(imgWidth, maxWidth);
+      displayHeight = displayWidth / aspectRatio;
+    } else {
+      // Height-constrained
+      displayHeight = Math.min(imgHeight, maxHeight);
+      displayWidth = displayHeight * aspectRatio;
+    }
+    
+    // Determine grid layout based on image size and aspect ratio
+    let textFr, imageFr;
+    
+    if (aspectRatio > 1.5) {
+      // Wide image - give more space to image
+      textFr = Math.max(1, 1600 - displayWidth);
+      imageFr = displayWidth;
+    } else if (aspectRatio < 0.8) {
+      // Tall image - give less space to image
+      textFr = Math.max(800, 1600 - displayWidth);
+      imageFr = Math.min(displayWidth, 400);
+    } else {
+      // Square-ish image - balanced layout
+      textFr = Math.max(600, 1600 - displayWidth - 80);
+      imageFr = displayWidth;
+    }
+    
+    // Apply the grid template
+    container.style.gridTemplateColumns = `${textFr}px ${imageFr}px`;
+    
+    // Set the image container width
+    const imageContainer = container.querySelector('.main-slide-image');
+    imageContainer.style.width = `${imageFr}px`;
+  }
+  
+  // Initialize reveal.js
+  Reveal.initialize({ 
+    width: 1920, 
+    height: 1080, 
+    margin: 0, 
+    controls: true, 
+    progress: true, 
+    center: false, 
+    hash: true, 
+    transition: 'slide' 
+  });
+  
+  // Handle window resize
+  window.addEventListener('resize', updateScale); 
+  updateScale();
+  
+  // Re-adjust layouts when slides change
+  Reveal.addEventListener('slidechanged', function(event) {
+    const currentSlide = event.currentSlide;
+    const img = currentSlide.querySelector('.main-slide-image img');
+    if (img && img.complete) {
+      adjustGridLayout(img);
+    }
+  });
 </script>
 </body>
 </html>

@@ -150,8 +150,17 @@ class AudioRequest(BaseModel):
     speaker: str = "female"  # "male" or "female"
 
 
-class VideoChunkRequest(BaseModel):
+class ProcessingMode(str, Enum):
+    PARALLEL = "parallel"
+    SEQUENTIAL = "sequential"
+
+
+class VideoGenerationRequest(BaseModel):
     script_id: str
+    processing_mode: ProcessingMode = Field(
+        default=ProcessingMode.PARALLEL,
+        description="Choose 'parallel' for faster processing on multi-core systems, or 'sequential' for lower resource usage.",
+    )
 
 
 class CombineVideosRequest(BaseModel):
@@ -512,8 +521,9 @@ def synthesize_text_sync(text: str, speaker: str, output_path: str) -> bool:
         client = texttospeech.TextToSpeechClient()
         cleaned_text = text.replace('\n', ' ').replace('\r', ' ').strip()
         if not cleaned_text:
-            print(f"Empty text provided for {output_path}")
-            return False
+            # For empty text, synthesize a short pause to create a silent audio file.
+            # This is crucial to keep audio and video tracks in sync.
+            cleaned_text = " "
         
         ssml_text = f'<speak><prosody rate="100%">{cleaned_text}</prosody></speak>'
         input_text = texttospeech.SynthesisInput(ssml=ssml_text)
@@ -933,141 +943,6 @@ def get_script_images(script_id: str):
 
 
 
-# PASTE THIS CODE INTO YOUR main.py FILE
-
-# def generate_presentation_html(script_id: str):
-#     """
-#     Generate a complete standalone HTML file for the presentation.
-#     This is a helper function and does not return a response.
-#     """
-#     # Get script data
-#     script_data = get_script_from_db(script_id)
-#     if not script_data:
-#         # This will be caught by the calling endpoint
-#         raise HTTPException(status_code=404, detail="Script not found")
-
-#     # Get images data
-#     images_data = get_images_from_db(script_id)
-
-#     # Build slides data
-#     slides = []
-
-#     # 1. Title Slide
-#     title_slide = {"type": "title", "title": script_data["topic"], "order": 1}
-
-#     overview_key = "segment_0_slide_0"
-#     if overview_key in images_data:
-#         overview_image_info = images_data[overview_key]
-#         if overview_image_info.get("image_path") and os.path.exists(
-#             overview_image_info["image_path"]
-#         ):
-#             try:
-#                 with open(overview_image_info["image_path"], "rb") as img_file:
-#                     image_data = img_file.read()
-#                     file_ext = Path(overview_image_info["image_path"]).suffix.lower()
-#                     mime_type = (
-#                         "image/jpeg" if file_ext in [".jpg", ".jpeg"] else "image/png"
-#                     )
-#                     image_base64 = f"data:{mime_type};base64,{base64.b64encode(image_data).decode()}"
-#                     title_slide["image_base64"] = image_base64
-#                     title_slide["image_alt"] = overview_image_info.get(
-#                         "image_prompt", f'Overview of {script_data["topic"]}'
-#                     )
-#             except Exception as e:
-#                 print(f"Error encoding overview image for title slide: {e}")
-
-#     slides.append(title_slide)
-
-#     # 2-6. Process 5 Segments (Section + 4 Main slides each)
-#     segments_data = script_data["parsed_script"]
-#     slide_order = 2
-#     main_slide_layouts = [
-#         "main",
-#         "main-image-dominant",
-#         "main-image-dominant-2",
-#         "main-text-focus",
-#     ]
-#     layout_index = 0
-
-#     for segment_idx, segment in enumerate(segments_data, 1):
-#         # Section Slide
-#         slides.append(
-#             {
-#                 "type": "section",
-#                 "title": segment.get("segment_title", f"Segment {segment_idx}"),
-#                 "body": segment.get("summary", ""),
-#                 "order": slide_order,
-#             }
-#         )
-#         slide_order += 1
-
-#         # 4 Main slides for this segment
-#         for slide_idx, slide in enumerate(segment.get("slides", []), 1):
-#             slide_key = f"segment_{segment_idx}_slide_{slide_idx}"
-#             image_info = images_data.get(slide_key, {})
-#             image_base64 = None
-#             if image_info.get("image_path") and os.path.exists(
-#                 image_info["image_path"]
-#             ):
-#                 try:
-#                     with open(image_info["image_path"], "rb") as img_file:
-#                         image_data = img_file.read()
-#                         file_ext = Path(image_info["image_path"]).suffix.lower()
-#                         mime_type = (
-#                             "image/jpeg"
-#                             if file_ext in [".jpg", ".jpeg"]
-#                             else "image/png"
-#                         )
-#                         image_base64 = f"data:{mime_type};base64,{base64.b64encode(image_data).decode()}"
-#                 except Exception as e:
-#                     print(f"Error encoding image {image_info['image_path']}: {e}")
-
-#             chosen_layout = main_slide_layouts[layout_index % len(main_slide_layouts)]
-#             layout_index += 1
-
-#             slides.append(
-#                 {
-#                     "type": chosen_layout,
-#                     "title": slide.get("title", f"Slide {slide_idx}"),
-#                     "body": slide.get("narration", ""),
-#                     "image_base64": image_base64,
-#                     "image_alt": slide.get("image_prompt", ""),
-#                     "order": slide_order,
-#                 }
-#             )
-#             slide_order += 1
-
-#     # 27. Thank You Slide
-#     slides.append(
-#         {
-#             "type": "thankyou",
-#             "title": "Thank You",
-#             "subtitle": "Made using Sutradhaar",
-#             "order": slide_order,
-#         }
-#     )
-
-#     # Generate theme colors
-#     theme_colors = get_theme_colors(images_data)
-
-#     # Generate HTML using template
-#     html_content = generate_html_template(
-#         topic=script_data["topic"],
-#         slides=slides,
-#         theme=theme_colors,
-#         script_id=script_id,
-#     )
-
-#     return {
-#         "script_id": script_id,
-#         "topic": script_data["topic"],
-#         "html_content": html_content,
-#         "filename": f"{script_id}_presentation.html",
-#     }
-
-
-# REPLACE the existing /generate-presentation/pdf endpoint in main.py with this
-
 @app.post("/generate-presentation/pdf", summary="Generate Presentation as PDF")
 async def generate_presentation_pdf(request: PresentationPDFRequest):
     """
@@ -1203,7 +1078,8 @@ def get_presentation_images(script_id: str):
 async def generate_audio(request: AudioRequest):
     """
     Generate audio files for a script using Google Text-to-Speech.
-    This version works with the new flat slide structure.
+    This version ensures an audio file is generated for every slide to maintain
+    sync with the video presentation.
     """
     script_id = request.script_id
     speaker = request.speaker.lower()
@@ -1212,38 +1088,45 @@ async def generate_audio(request: AudioRequest):
     if not script_data:
         raise HTTPException(status_code=404, detail="Script not found.")
     
-    # The script now has a flat structure
     parsed_slides = script_data.get("parsed_script", [])
     audio_dir = f"generated_audio/{script_id}"
     os.makedirs(audio_dir, exist_ok=True)
     
-    tasks_with_info = []
-    
-    # 1. Title slide audio
-    title_text = f"Welcome to our presentation on {script_data['topic']}"
-    tasks_with_info.append({
-        "content": title_text, "speaker": speaker,
-        "path": os.path.join(audio_dir, "audio_00.mp3"),
-        "key": "title_slide", "type": "title"
+    # Create a list of all narrations in order to ensure a 1:1 match with PDF slides
+    narrations_to_process = []
+
+    # 1. Title slide
+    narrations_to_process.append({
+        "content": f"Welcome to our presentation on {script_data['topic']}",
+        "key": "title_slide",
+        "type": "title"
     })
-    
-    # 2. Main slide audio from narration
+
+    # 2. Main content slides
     for idx, slide in enumerate(parsed_slides, 1):
-        narration = slide.get('narration', '').strip()
-        if narration:
-            tasks_with_info.append({
-                "content": narration, "speaker": speaker,
-                "path": os.path.join(audio_dir, f"audio_{idx:02d}.mp3"),
-                "key": f"slide_{idx}", "type": "narration"
-            })
-    
-    # 3. Thank you slide audio
-    thank_you_text = "Thank you for your attention. This presentation was made using Sutradhaar."
-    tasks_with_info.append({
-        "content": thank_you_text, "speaker": speaker,
-        "path": os.path.join(audio_dir, "audio_99.mp3"),
-        "key": "thank_you_slide", "type": "thank_you"
+        narrations_to_process.append({
+            "content": slide.get('narration', '').strip(),
+            "key": f"slide_{idx}",
+            "type": "narration"
+        })
+
+    # 3. Thank you slide
+    narrations_to_process.append({
+        "content": "Thank you for your attention. This presentation was made using Sutradhaar.",
+        "key": "thank_you_slide",
+        "type": "thank_you"
     })
+    
+    tasks_with_info = []
+    # Use a sequential, 3-digit padded index for audio files to match PDF slide images
+    for idx, narration_info in enumerate(narrations_to_process, 1):
+        tasks_with_info.append({
+            "content": narration_info["content"],
+            "speaker": speaker,
+            "path": os.path.join(audio_dir, f"audio_{idx:03d}.mp3"),
+            "key": narration_info["key"],
+            "type": narration_info["type"]
+        })
     
     # The rest of the logic is the same
     tts_tasks = [synthesize_text_async(t["content"], t["speaker"], t["path"]) for t in tasks_with_info]
@@ -1271,106 +1154,185 @@ async def generate_audio(request: AudioRequest):
     }
 
 
-@app.post("/generate-video-chunks", summary="Generate Individual Video Chunks")
-async def generate_video_chunks_endpoint(request: VideoChunkRequest):
+@app.post("/generate-video", summary="Generate and Combine Full Video")
+async def generate_full_video(request: VideoGenerationRequest):
     """
-    Generates individual video chunks for a given script_id.
+    Generates individual video chunks and combines them into a final video.
+    Allows choosing between parallel and sequential processing for chunk generation.
     """
     script_id = request.script_id
+    mode = request.processing_mode
+
+    # --- Stage 1: Setup and Data Validation ---
     _check_ffmpeg_tools()
 
     script_data = get_script_from_db(script_id)
     if not script_data:
-        raise HTTPException(status_code=404, detail=f"Script '{script_id}' not found.")
+        raise HTTPException(
+            status_code=404, detail=f"Script '{script_id}' not found."
+        )
 
     pdf_images = get_pdf_images_from_db(script_id)
     audio_map = get_audio_from_db(script_id)
     if not pdf_images or not audio_map:
-        raise HTTPException(status_code=404, detail="PDF images or audio not found.")
-    
-    ordered_audio_files = list(audio_map.values())
-    if len(pdf_images) != len(ordered_audio_files):
-        raise HTTPException(status_code=500, detail="Mismatch in number of images and audio files.")
+        raise HTTPException(
+            status_code=404,
+            detail="PDF images or audio not found. Please generate them first.",
+        )
 
-    script_output_dir = os.path.join("generated_chunks", script_id)
-    
-    duration_tasks = [get_media_duration(af.get("audio_path")) for af in ordered_audio_files]
+    # Sort audio files based on their filename to ensure correct order.
+    # The filenames are padded (e.g., audio_001.mp3), so a simple string sort is reliable.
+    ordered_audio_files = sorted(list(audio_map.values()), key=lambda x: x.get("audio_path", ""))
+
+    if len(pdf_images) != len(ordered_audio_files):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Mismatch in number of images ({len(pdf_images)}) and audio files ({len(ordered_audio_files)}).",
+        )
+
+    # --- Stage 2: Video Chunk Generation ---
+    chunks_output_dir = os.path.join("generated_chunks", script_id)
+
+    duration_tasks = [
+        get_media_duration(af.get("audio_path")) for af in ordered_audio_files
+    ]
     audio_durations = await asyncio.gather(*duration_tasks)
-    
+
     video_creation_tasks = []
     for i, pdf_image_info in enumerate(pdf_images):
-        if audio_durations[i] is not None:
-            video_creation_tasks.append(
-                create_single_video_chunk(
-                    chunk_order=i + 1, image_path=pdf_image_info["image_path"],
-                    audio_path=ordered_audio_files[i]["audio_path"],
-                    audio_duration=audio_durations[i],
-                    output_dir=script_output_dir, script_id=script_id
-                )
+        audio_duration = audio_durations[i]
+        if audio_duration is not None:
+            task = create_single_video_chunk(
+                chunk_order=i + 1,
+                image_path=pdf_image_info["image_path"],
+                audio_path=ordered_audio_files[i]["audio_path"],
+                audio_duration=audio_duration,
+                output_dir=chunks_output_dir,
+                script_id=script_id,
             )
-    
-    generation_results = await asyncio.gather(*video_creation_tasks, return_exceptions=True)
-    
-    successful_chunks = [res for res in generation_results if not isinstance(res, Exception)]
-    failed_chunks = [str(res) for res in generation_results if isinstance(res, Exception)]
-    
-    return {
-        "script_id": script_id, "topic": script_data["topic"],
-        "chunks_successfully_generated": len(successful_chunks),
-        "chunks_failed_generation": len(failed_chunks),
-        "generated_chunks_details": successful_chunks,
-        "generation_errors": failed_chunks
-    }
+            video_creation_tasks.append(task)
 
+    start_time = time.time()
 
-@app.post("/combine-video-chunks-fast", summary="Fast Video Concatenation (No Transitions)")
-async def combine_video_chunks_fast_endpoint(request: VideoChunkRequest):
-    """
-    Combines individual video chunks using FFmpeg's concat demuxer.
-    """
-    script_id = request.script_id
-    chunks_input_dir = os.path.join("generated_chunks", script_id)
-    if not os.path.isdir(chunks_input_dir):
-        raise HTTPException(status_code=404, detail=f"Chunk directory not found for script_id: {script_id}")
+    if mode == ProcessingMode.PARALLEL:
+        print(
+            f"Generating {len(video_creation_tasks)} video chunks in parallel..."
+        )
+        generation_results = await asyncio.gather(
+            *video_creation_tasks, return_exceptions=True
+        )
+    else:  # SEQUENTIAL
+        print(
+            f"Generating {len(video_creation_tasks)} video chunks sequentially..."
+        )
+        generation_results = []
+        for i, task in enumerate(video_creation_tasks):
+            print(f"  - Generating chunk {i+1}/{len(video_creation_tasks)}...")
+            try:
+                result = await task
+                generation_results.append(result)
+            except Exception as e:
+                generation_results.append(e)
+                print(f"  - FAILED chunk {i+1}: {e}")
 
-    chunk_files = sorted(glob.glob(os.path.join(chunks_input_dir, "chunk_*.mp4")))
+    chunk_gen_duration = time.time() - start_time
+
+    successful_chunks = [
+        res for res in generation_results if not isinstance(res, Exception)
+    ]
+    failed_chunks = [
+        str(res) for res in generation_results if isinstance(res, Exception)
+    ]
+
+    if not successful_chunks:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "All video chunk generations failed.",
+                "errors": failed_chunks,
+            },
+        )
+
+    # --- Stage 3: Combine Video Chunks ---
+    print("Combining video chunks...")
+    chunk_files = sorted(
+        glob.glob(os.path.join(chunks_output_dir, "chunk_*.mp4"))
+    )
     if not chunk_files:
-        raise HTTPException(status_code=404, detail=f"No video chunk files found in {chunks_input_dir}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"No video chunk files found in {chunks_output_dir} after generation.",
+        )
 
     final_output_dir = os.path.join("generated_final_videos", script_id)
     os.makedirs(final_output_dir, exist_ok=True)
-    
-    concat_file_path = os.path.join(final_output_dir, f"{script_id}_concat_list.txt")
-    output_filename = f"final_presentation_{script_id}.mp4"
+
+    concat_file_path = os.path.join(
+        final_output_dir, f"{script_id}_concat_list.txt"
+    )
+    output_filename = (
+        f"final_presentation_{script_id}_{int(time.time())}.mp4"
+    )
     final_video_path = os.path.join(final_output_dir, output_filename)
-    
+
     try:
-        with open(concat_file_path, 'w') as f:
+        with open(concat_file_path, "w") as f:
             for chunk_file in chunk_files:
                 f.write(f"file '{os.path.abspath(chunk_file)}'\n")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creating concat file: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Error creating concat file: {e}"
+        )
 
     ffmpeg_cmd = [
-        "ffmpeg", "-f", "concat", "-safe", "0", "-i", concat_file_path,
-        "-c", "copy", "-y", final_video_path
+        "ffmpeg",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        concat_file_path,
+        "-c",
+        "copy",
+        "-y",
+        final_video_path,
     ]
 
     try:
         process = await asyncio.create_subprocess_exec(
-            *ffmpeg_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            *ffmpeg_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await process.communicate()
 
         if process.returncode != 0:
-            raise HTTPException(status_code=500, detail=f"FFmpeg fast concat failed: {stderr.decode()}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"FFmpeg fast concat failed: {stderr.decode()}",
+            )
+
+        final_video_size = (
+            os.path.getsize(final_video_path)
+            if os.path.exists(final_video_path)
+            else 0
+        )
 
         return {
             "script_id": script_id,
+            "topic": script_data["topic"],
+            "message": "Video generated and combined successfully.",
             "final_video_path": final_video_path,
             "video_url": f"/generated_final_videos/{script_id}/{output_filename}",
-            "message": "Video combined successfully",
-            "file_exists": os.path.exists(final_video_path)
+            "file_size_bytes": final_video_size,
+            "stats": {
+                "processing_mode": mode,
+                "chunks_requested": len(video_creation_tasks),
+                "chunks_succeeded": len(successful_chunks),
+                "chunks_failed": len(failed_chunks),
+                "chunk_generation_time_seconds": round(chunk_gen_duration, 2),
+                "failed_chunk_errors": failed_chunks,
+            },
         }
     finally:
         if os.path.exists(concat_file_path):
