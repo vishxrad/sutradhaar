@@ -110,11 +110,18 @@ DURATION_MAPPING = {
 }
 
 
+# In main.py, replace the existing ScriptRequest model with this updated version
 class ScriptRequest(BaseModel):
     topic: str
     video_type: VideoType = Field(
         default=VideoType.EXPLAINER,
-        description="The type of video to generate.",
+        description="The type of video to generate. This is ignored if custom_duration_minutes is set.",
+    )
+    custom_duration_minutes: Optional[float] = Field(
+        default=None,
+        gt=0,
+        le=10, # Set a reasonable upper limit of 10 minutes
+        description="Specify a custom video duration in minutes. If set, this overrides the 'video_type' duration.",
     )
 
 
@@ -734,25 +741,33 @@ def fetch_frontend():
     return FileResponse(os.path.join("static", "index.html"))
 
 
+# Replace the existing /generate-script endpoint with this updated version
 @app.post("/generate-script")
 def generate_script(request: ScriptRequest):
     """
     Generate a script with narration and on-screen content for each slide.
+    Supports preset video types or a custom duration in minutes.
     """
     topic = request.topic
-    video_type = request.video_type
-    duration_in_minutes = DURATION_MAPPING[video_type]
+    video_type_message = ""
 
-    slides_per_minute = 4
-    total_slides = duration_in_minutes * slides_per_minute
-    total_words = duration_in_minutes * 200
-    words_per_slide_narration = round(total_words / total_slides)
+    # Prioritize custom duration if provided by the user
+    if request.custom_duration_minutes:
+        duration_in_minutes = request.custom_duration_minutes
+        video_type_message = f"{duration_in_minutes} minute custom video"
+    else:
+        # Fallback to the selected video type
+        video_type = request.video_type
+        duration_in_minutes = DURATION_MAPPING[video_type]
+        video_type_message = f"'{video_type.value}' video ({duration_in_minutes} min)"
 
-    # --- Updated Prompt ---
-    # In main.py, replace the prompt in the /generate-script endpoint
+    # Define generation parameters based on duration
+    slides_per_minute = 4  # A reasonable average for presentations
+    # Ensure at least 1 slide is generated, even for very short durations
+    total_slides = max(1, round(duration_in_minutes * slides_per_minute))
 
     prompt = f"""You are an expert scriptwriter and data visualizer for educational videos.
-    The video will cover the topic: "{topic}" and have {total_slides} slides.
+    The video will cover the topic: "{topic}". The target duration is approximately {duration_in_minutes:.1f} minutes, which means you should generate content for {total_slides} slides.
 
     For each of the {total_slides} slides, you must decide the best visual representation.
     You have three choices for the 'visual_type':
@@ -821,7 +836,6 @@ def generate_script(request: ScriptRequest):
     """
 
     try:
-        # The rest of your endpoint logic remains the same...
         response = client.chat.completions.create(
             model="Qwen/Qwen3-14B",
             messages=[
@@ -833,7 +847,7 @@ def generate_script(request: ScriptRequest):
             ],
         )
         raw_script_data = response.choices[0].message.content
-        parsed_script_data = parse_script_data(raw_script_data) # This now needs the updated parser
+        parsed_script_data = parse_script_data(raw_script_data)
         script_id = f"script_{int(time.time())}"
 
         if save_script_to_db(
@@ -843,7 +857,7 @@ def generate_script(request: ScriptRequest):
                 "script_id": script_id,
                 "topic": topic,
                 "parsed_script": parsed_script_data,
-                "message": f"Script for '{video_type.value}' generated successfully.",
+                "message": f"Script for {video_type_message} generated successfully.",
             }
         else:
             raise HTTPException(
