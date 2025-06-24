@@ -1120,13 +1120,22 @@ async def generate_audio(request: AudioRequest):
     tasks_with_info = []
     # Use a sequential, 3-digit padded index for audio files to match PDF slide images
     for idx, narration_info in enumerate(narrations_to_process, 1):
+        slide_idx = None
+        segment_idx = idx  # sequential for ordering
+
+        if narration_info["type"] == "narration":
+            slide_idx = idx - 1  # narration slides: match PDF order (exclude title slide)
+        
         tasks_with_info.append({
             "content": narration_info["content"],
             "speaker": speaker,
             "path": os.path.join(audio_dir, f"audio_{idx:03d}.mp3"),
             "key": narration_info["key"],
-            "type": narration_info["type"]
+            "type": narration_info["type"],
+            "segment_idx": segment_idx,
+            "slide_idx": slide_idx,
         })
+
     
     # The rest of the logic is the same
     tts_tasks = [synthesize_text_async(t["content"], t["speaker"], t["path"]) for t in tasks_with_info]
@@ -1139,11 +1148,14 @@ async def generate_audio(request: AudioRequest):
         if result is True:
             successful_count += 1
             audio_files_to_save[task_info["key"]] = {
-                "audio_type": task_info["type"],
-                "content": task_info["content"],
-                "audio_path": task_info["path"],
-                "speaker": task_info["speaker"]
-            }
+            "audio_type": task_info["type"],
+            "content": task_info["content"],
+            "audio_path": task_info["path"],
+            "speaker": task_info["speaker"],
+            "segment_idx": task_info["segment_idx"],
+            "slide_idx": task_info["slide_idx"],
+        }
+
     
     if audio_files_to_save:
         save_audio_to_db(script_id, audio_files_to_save)
