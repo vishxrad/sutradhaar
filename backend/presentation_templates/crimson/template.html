@@ -14,87 +14,113 @@
     html, body { margin: 0; padding: 0; overflow: hidden; }
     .reveal { font-family: 'Inter', sans-serif; width: 100vw !important; height: 100vh !important; }
     .reveal .slides { width: 1920px !important; height: 1080px !important; left: 50% !important; top: 50% !important; transform: translate(-50%, -50%) scale(var(--reveal-scale)) !important; transform-origin: center center !important; }
-    .reveal .slides section { width: 100% !important; height: 100% !important; padding: 60px !important; box-sizing: border-box !important; display: flex !important; flex-direction: column !important; justify-content: center !important; }
+    .reveal .slides section { width: 100% !important; height: 100% !important; padding: 0 !important; box-sizing: border-box !important; }
     .reveal h1, .reveal h2, .reveal h3 { font-family: 'Inter', sans-serif; font-weight: 600; text-shadow: none; }
 
-    /* --- CRIMSON THEME STYLES (HARDCODED) --- */
-    /* These styles use fixed red color values */
-
-    /* Title & Thank You Slides Background */
+    /* --- Title & Thank You Slides (Original Style) --- */
     .title-slide, .thankyou-slide {
       background: linear-gradient(135deg, rgb(192, 57, 43) 0%, rgb(231, 76, 60) 100%);
       color: white;
       text-align: center;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: center !important;
+      padding: 60px !important;
     }
     .title-slide-overlay {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%;
       background: linear-gradient(135deg, rgba(192, 57, 43, 0.85) 0%, rgba(231, 76, 60, 0.75) 100%);
       z-index: 2;
     }
-
-    /* Main Content Slides Background */
-    .main-slide, .main-image-dominant, .main-image-dominant-2, .main-text-focus {
-      background: #f4f1eb !important;
-      color: #2c3e50 !important;
-      justify-content: flex-start !important;
-      padding-top: 80px !important;
-    }
-
-    /* --- Slide Layouts --- */
-    .title-slide { padding: 0 !important; }
     .title-slide-background { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
     .title-slide-background img { width: 100%; height: 100%; object-fit: cover; filter: blur(2px) brightness(0.8); }
     .title-slide-content { position: relative; z-index: 3; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; }
     .title-slide h1 { font-size: 120px; font-weight: 700; }
-
-    .main-slide h2, .main-image-dominant h2, .main-image-dominant-2 h2, .main-text-focus h2 { font-size: 72px; margin-bottom: 50px; text-align: center; margin-top: 0; }
-    
-    /* Dynamic grid layout that adapts to image size */
-    .main-slide-content { 
-      display: grid; 
-      gap: 80px; 
-      align-items: center; 
-      max-width: 1600px; 
-      margin: 0 auto; 
-      flex: 1;
-      /* Default to equal columns, will be overridden by JavaScript */
-      grid-template-columns: 1fr 1fr;
-    }
-    
-    /* Flexible image container */
-    .main-slide-image { 
-      display: flex; 
-      justify-content: center; 
-      align-items: center;
-      min-width: 200px;
-      max-width: 800px;
-    }
-    
-    .main-slide-image img { 
-      max-width: 100%; 
-      max-height: 600px; 
-      width: auto; 
-      height: auto; 
-      object-fit: contain; 
-      border-radius: 30px; 
-      box-shadow: 0 20px 50px rgba(0,0,0,0.15);
-    }
-    
-    .main-slide-text ul { font-size: 42px; line-height: 1.7; text-align: left; }
-    .no-image-placeholder { 
-      width: 480px; 
-      height: 480px; 
-      background: #ddd; 
-      border-radius: 30px; 
-      display: flex; 
-      align-items: center; 
-      justify-content: center; 
-      color: #666; 
-      font-size: 32px; 
-    }
-
     .thankyou-slide h3 { font-size: 108px; margin-bottom: 40px; }
     .thankyou-slide p { font-size: 48px; opacity: 0.9; }
+
+    /* --- NEW CONTENT SLIDE THEME (Inspired by Image) --- */
+    .content-slide {
+      background-color: #ffffff;
+    }
+
+    .slide-wrapper {
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      border: 20px solid;
+      border-image-slice: 1;
+      border-image-source: linear-gradient(135deg, #D12B3A, #4A238A);
+      display: flex;
+      flex-direction: column;
+      padding: 30px 50px;
+    }
+
+    .slide-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 30px;
+      flex-shrink: 0;
+    }
+
+    .slide-title-container {
+      background-color: #D12B3A;
+      color: white;
+      padding: 15px 70px 15px 35px;
+      position: relative;
+      clip-path: polygon(0 0, calc(100% - 40px) 0, 100% 50%, calc(100% - 40px) 100%, 0 100%);
+    }
+
+    .slide-title-container h2 {
+      font-size: 44px;
+      margin: 0;
+      font-weight: 600;
+      color: white;
+    }
+
+    .slide-logo img {
+      height: 100px;
+      width: auto;
+      max-width: 300px;
+    }
+
+    .slide-content {
+      flex-grow: 1;
+      display: grid;
+      gap: 50px;
+      align-items: center;
+      overflow: hidden;
+    }
+
+    /* Layout Variations */
+    .slide-content.layout-image-left { grid-template-columns: 1fr 1fr; }
+    .slide-content.layout-image-right { grid-template-columns: 1fr 1fr; }
+    .slide-content.layout-image-right .slide-content-image { order: 2; }
+    .slide-content.layout-image-right .slide-content-text { order: 1; }
+    .slide-content.no-image { grid-template-columns: 1fr; }
+
+    .slide-content-text {
+      font-size: 32px;
+      line-height: 1.7;
+      color: #2c3e50;
+    }
+    .slide-content-text ul { list-style-position: outside; padding-left: 1.2em; }
+    .slide-content-text li { margin-bottom: 0.8em; }
+    .slide-content-text b, .slide-content-text strong { color: #000; }
+
+    .slide-content-image {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100%;
+    }
+
+    .slide-content-image img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
   </style>
 </head>
 <body>
@@ -110,17 +136,27 @@
           <div class="title-slide-content"><h1>{{ slide.title }}</h1></div>
         </section>
       {% elif slide.type == 'main' %}
-        <section class="main-slide">
-          <h2>{{ slide.title }}</h2>
-          <div class="main-slide-content">
-            <div class="main-slide-text">{{ slide.body | format_bullets | safe }}</div>
-            <div class="main-slide-image">
+        <section class="content-slide">
+          <div class="slide-wrapper">
+            <header class="slide-header">
+              <div class="slide-title-container">
+                <h2>{{ slide.title }}</h2>
+              </div>
+              <div class="slide-logo">
+                <!-- Replace this with your actual logo -->
+                <img src="/home/visharad/Desktop/sutradhaar/backend/presentation_templates/shoolini.png" alt="University Logo">
+              </div>
+            </header>
+            <main class="slide-content {{ 'no-image' if not slide.image_base64 }} layout-{{ slide.layout | default('image-left') }}">
               {% if slide.image_base64 %}
-                <img src="{{ slide.image_base64 }}" alt="{{ slide.image_alt }}" onload="adjustGridLayout(this)">
-              {% else %}
-                <div class="no-image-placeholder">Visual Here</div>
+              <div class="slide-content-image">
+                <img src="{{ slide.image_base64 }}" alt="{{ slide.image_alt }}">
+              </div>
               {% endif %}
-            </div>
+              <div class="slide-content-text">
+                {{ slide.body | format_bullets | safe }}
+              </div>
+            </main>
           </div>
         </section>
       {% elif slide.type == 'thankyou' %}
@@ -139,55 +175,6 @@
     document.documentElement.style.setProperty('--reveal-scale', scale); 
   }
   
-  function adjustGridLayout(imgElement) {
-    const container = imgElement.closest('.main-slide-content');
-    if (!container) return;
-    
-    // Get image dimensions
-    const imgWidth = imgElement.naturalWidth;
-    const imgHeight = imgElement.naturalHeight;
-    const aspectRatio = imgWidth / imgHeight;
-    
-    // Calculate optimal image display size
-    let displayWidth, displayHeight;
-    const maxWidth = 800;
-    const maxHeight = 600;
-    
-    if (aspectRatio > maxWidth / maxHeight) {
-      // Width-constrained
-      displayWidth = Math.min(imgWidth, maxWidth);
-      displayHeight = displayWidth / aspectRatio;
-    } else {
-      // Height-constrained
-      displayHeight = Math.min(imgHeight, maxHeight);
-      displayWidth = displayHeight * aspectRatio;
-    }
-    
-    // Determine grid layout based on image size and aspect ratio
-    let textFr, imageFr;
-    
-    if (aspectRatio > 1.5) {
-      // Wide image - give more space to image
-      textFr = Math.max(1, 1600 - displayWidth);
-      imageFr = displayWidth;
-    } else if (aspectRatio < 0.8) {
-      // Tall image - give less space to image
-      textFr = Math.max(800, 1600 - displayWidth);
-      imageFr = Math.min(displayWidth, 400);
-    } else {
-      // Square-ish image - balanced layout
-      textFr = Math.max(600, 1600 - displayWidth - 80);
-      imageFr = displayWidth;
-    }
-    
-    // Apply the grid template
-    container.style.gridTemplateColumns = `${textFr}px ${imageFr}px`;
-    
-    // Set the image container width
-    const imageContainer = container.querySelector('.main-slide-image');
-    imageContainer.style.width = `${imageFr}px`;
-  }
-  
   // Initialize reveal.js
   Reveal.initialize({ 
     width: 1920, 
@@ -203,15 +190,6 @@
   // Handle window resize
   window.addEventListener('resize', updateScale); 
   updateScale();
-  
-  // Re-adjust layouts when slides change
-  Reveal.addEventListener('slidechanged', function(event) {
-    const currentSlide = event.currentSlide;
-    const img = currentSlide.querySelector('.main-slide-image img');
-    if (img && img.complete) {
-      adjustGridLayout(img);
-    }
-  });
 </script>
 </body>
 </html>
