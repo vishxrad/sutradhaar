@@ -1,278 +1,307 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>{{ topic }} - Sutradhaar Presentation</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js/dist/reveal.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js/dist/theme/black.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ topic }} - Sutradhaar Presentation</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
 
-  <style>
-    /* --- All the CSS from your previous version goes here --- */
-    /* I'm adding only the NEW/MODIFIED styles for clarity */
-    
-    html, body { margin: 0; padding: 0; overflow: hidden; }
-    .reveal { font-family: 'Inter', sans-serif; width: 100vw !important; height: 100vh !important; }
-    .reveal .slides { width: 1920px !important; height: 1080px !important; left: 50% !important; top: 50% !important; transform: translate(-50%, -50%) scale(var(--reveal-scale, 1)) !important; transform-origin: center center !important; }
-    .reveal .slides section { width: 1920px !important; height: 1080px !important; padding: 60px !important; box-sizing: border-box !important; display: flex !important; flex-direction: column !important; justify-content: center !important; }
-    .reveal h1, .reveal h2, .reveal h3 { font-family: 'Inter', sans-serif; font-weight: 600; }
-    
-    /* --- NEW STYLES FOR LISTS --- */
-    .main-slide-text ul, .text-section ul {
-        font-size: 42px;
-        line-height: 1.7;
-        color: #2c3e50 !important;
-        list-style-type: disc; /* Or square, circle */
-    }
-    
-    .main-slide-text li, .text-section li {
-        padding-left: 15px; /* Space between bullet and text */
-    }
-    /* --- END NEW STYLES --- */
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/reveal.js/dist/reveal.css"
+    />
+    <!-- Changed to a light base theme -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/reveal.js/dist/theme/white.css"
+      id="theme"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
 
-    /* Paste ALL your other CSS rules here (for .title-slide, .section-slide, .main-slide, etc.) */
-    /* For example: */
-    .title-slide { position: relative; color: white; text-align: center; overflow: hidden; padding: 0 !important; background: linear-gradient(135deg, rgb(192, 57, 43) 0%, rgb(231, 76, 60) 100%); }
-    .title-slide-background { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
-    .title-slide-background img { width: 100%; height: 100%; object-fit: cover; filter: blur(2px) brightness(0.8); }
-    .title-slide-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, rgba(192, 57, 43, 0.85) 0%, rgba(231, 76, 60, 0.75) 50%, rgba(0, 0, 0, 0.6) 100%); z-index: 2; }
-    .title-slide-content { position: relative; z-index: 3; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 80px; text-align: center; }
-    .title-slide h1 { font-size: 120px; font-weight: 800; text-shadow: 3px 3px 6px rgba(0,0,0,0.5); line-height: 1.1; max-width: 1600px; margin: 0 auto 40px auto; background: linear-gradient(45deg, #ffffff, rgba(255,255,255,0.9)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-    .main-slide { background: #f4f1eb !important; color: #2c3e50 !important; justify-content: flex-start !important; padding-top: 80px !important; }
-    .main-slide h2 { font-size: 72px; margin-bottom: 50px; text-align: center; margin-top: 0 !important; color: #2c3e50 !important; text-shadow: none; }
-    .main-slide-content {
+    <style>
+      /* --- THEME DEFINITION (Light Theme) --- */
+      :root {
+        --background-color: #ffffff;
+        --text-color: #222222;
+        --heading-color: #000000;
+        --accent-color: #3498db;
+        --border-color: #dddddd;
+        --placeholder-bg: #f0f0f0;
+        --placeholder-text: #888888;
+      }
+
+      /* --- GLOBAL STYLES --- */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+      .reveal {
+        font-family: "Inter", sans-serif;
+        width: 100vw !important;
+        height: 100vh !important;
+        background-color: var(--background-color);
+        color: var(--text-color);
+      }
+      .reveal .slides {
+        width: 1920px !important;
+        height: 1080px !important;
+        left: 50% !important;
+        top: 50% !important;
+        transform: translate(-50%, -50%) scale(var(--reveal-scale, 1)) !important;
+        transform-origin: center center !important;
+      }
+      .reveal .slides section {
+        width: 1920px !important;
+        height: 1080px !important;
+        padding: 60px !important;
+        box-sizing: border-box !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: flex-start !important; /* Default: Align content to top */
+        background-color: var(--background-color);
+      }
+      .reveal h1,
+      .reveal h2,
+      .reveal h3 {
+        font-family: "Inter", sans-serif;
+        font-weight: 700;
+        color: var(--heading-color);
+        text-shadow: none;
+      }
+
+      /* --- TITLE SLIDE (FIXED) --- */
+      /* This rule is now more specific to override the global section style */
+      .reveal .slides section.title-slide {
+        justify-content: center !important; /* This now correctly centers the content vertically */
+        text-align: center;
+        padding: 0 !important;
+      }
+      .title-slide-background {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1;
+      }
+      .title-slide-background img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        filter: brightness(0.9); /* Adjusted for light theme */
+      }
+      .title-slide-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.8) 0%,
+          rgba(255, 255, 255, 0.9) 100%
+        );
+        z-index: 2;
+      }
+      .title-slide-content {
+        position: relative;
+        z-index: 3;
+        padding: 80px;
+        text-align: center;
+      }
+      .title-slide h1 {
+        font-size: 120px;
+        font-weight: 800;
+        line-height: 1.2;
+        max-width: 1600px;
+        margin: 0 auto;
+        border-bottom: 5px solid var(--accent-color);
+        padding-bottom: 30px;
+      }
+      .title-slide.no-image {
+        background: linear-gradient(135deg, #fdfdfd 0%, #f5f5f5 100%);
+      }
+
+      /* --- UNIFIED MAIN CONTENT SLIDE --- */
+      .main-slide h2 {
+        font-size: 72px;
+        margin-bottom: 70px;
+        text-align: center;
+        margin-top: 0 !important;
+        color: var(--accent-color) !important;
+        flex-shrink: 0;
+      }
+
+      .content-grid {
         display: grid;
-        grid-template-columns: 1fr 480px;
+        grid-template-columns: 55fr 45fr; /* Default: Text Left, Image Right */
         gap: 80px;
         align-items: center;
         max-width: 1600px;
         margin: 0 auto;
-        height: auto;
-        flex: 1;
-    }
-    .main-slide-text {
-        font-size: 42px;
+        width: 100%;
+        flex-grow: 1;
+        height: 100%;
+      }
+
+      /* Alternating layout logic */
+      .main-slide.layout-image-left .content-grid {
+        grid-template-columns: 45fr 55fr; /* Image Left, Text Right */
+      }
+      .main-slide.layout-image-left .image-container {
+        grid-column: 1;
+        grid-row: 1;
+      }
+      .main-slide.layout-image-left .text-container {
+        grid-column: 2;
+        grid-row: 1;
+      }
+
+      .text-container {
+        font-size: 40px;
         line-height: 1.7;
-        color: #2c3e50;
-    }
-    
-    .main-slide-image {
+      }
+
+      /* --- BULLET POINT STYLING (FIXED) --- */
+      ul {
+        list-style-type: none;
+        padding-left: 0;
+      }
+
+      /* This pseudo-element creates the custom bullet, avoiding the "double bullet" issue */
+
+      .image-container {
         display: flex;
         justify-content: center;
         align-items: center;
-    }
-    
-    .main-slide-image img {
-        width: 480px;
-        height: 480px;
-        object-fit: cover;
-        border-radius: 30px;
-        box-shadow: 0 20px 50px rgba(0,0,0,0.15);
-    }
-    
-    .no-image-placeholder {
-        width: 480px;
-        height: 480px;
-        background: #ddd;
-        border-radius: 30px;
+        height: 100%;
+        width: 100%;
+      }
+      .image-container img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        border-radius: 16px;
+      }
+      .no-image-placeholder {
+        width: 100%;
+        height: 100%;
+        max-height: 600px;
+        border-radius: 16px;
+        background: var(--placeholder-bg);
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #666;
+        color: var(--placeholder-text);
         font-size: 32px;
-    }
-    
-    /* Image dominant layouts */
-    .main-image-dominant, .main-image-dominant-2 {
-        background: #f4f1eb !important;
-        color: #2c3e50 !important;
-        justify-content: flex-start !important;
-        padding-top: 80px !important;
-    }
-    
-    .main-image-dominant h2, .main-image-dominant-2 h2 {
-        font-size: 72px;
-        margin-bottom: 50px;
-        text-align: center;
-        margin-top: 0 !important;
-        color: #2c3e50 !important;
-    }
-    
-    .content-container {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 80px;
-        align-items: center;
-        max-width: 1600px;
-        margin: 0 auto;
-        height: auto;
-        flex: 1;
-    }
-    
-    .image-section {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-    }
-    
-    .image-section img {
-        width: 600px;
-        height: 450px;
-        object-fit: cover;
-        border-radius: 30px;
-        box-shadow: 0 20px 50px rgba(0,0,0,0.15);
-    }
-    
-    .text-section {
-        font-size: 42px;
-        line-height: 1.7;
-        color: #2c3e50;
-    }
-    
-    /* Text focus layout */
-    .main-text-focus {
-        background: #f4f1eb !important;
-        color: #2c3e50 !important;
-        justify-content: flex-start !important;
-        padding-top: 80px !important;
-    }
-    
-    .main-text-focus h2 {
-        font-size: 72px;
-        margin-bottom: 50px;
-        text-align: center;
-        margin-top: 0 !important;
-        color: #2c3e50 !important;
-    }
-    
-    .focus-content {
-        display: grid;
-        grid-template-columns: 2fr 1fr;
-        gap: 80px;
-        align-items: center;
-        max-width: 1600px;
-        margin: 0 auto;
-        height: auto;
-        flex: 1;
-    }
-    
-    .main-text {
-        font-size: 42px;
-        line-height: 1.7;
-        color: #2c3e50;
-    }
-    
-    .accent-image {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-    }
-    
-    .accent-image img {
-        width: 300px;
-        height: 300px;
-        object-fit: cover;
-        border-radius: 20px;
-        box-shadow: 0 15px 35px rgba(0,0,0,0.1);
-    }
-    
-    /* Title slide no-image variant */
-    .title-slide.no-image {
-        background: linear-gradient(135deg, rgb(192, 57, 43) 0%, rgb(231, 76, 60) 100%);
-    }
-    /* ... and so on for all your other CSS rules ... */
-    .thankyou-slide { background: linear-gradient(135deg, rgb(192, 57, 43) 0%, rgb(231, 76, 60) 100%); color: white; text-align: center; justify-content: center !important; }
-    .thankyou-slide h3 { font-size: 108px; margin-bottom: 40px; }
-    .thankyou-slide p { font-size: 48px; opacity: 0.9; text-align: center; }
-    
-  </style>
-</head>
-<body>
+        border: 2px dashed var(--border-color);
+      }
 
-<div class="reveal">
-  <div class="slides">
-    {% for slide in slides %}
-      {% if slide.type == 'title' %}
-        <section class="title-slide{% if not slide.image_base64 %} no-image{% endif %}">
+      /* --- THANK YOU SLIDE --- */
+      .reveal .slides section.thankyou-slide {
+        background: linear-gradient(135deg, #fdfdfd 0%, #f5f5f5 100%);
+        text-align: center;
+        justify-content: center !important;
+      }
+      .thankyou-slide h3 {
+        font-size: 108px;
+        margin-bottom: 40px;
+        color: var(--heading-color);
+      }
+      .thankyou-slide p {
+        font-size: 48px;
+        opacity: 0.9;
+        text-align: center;
+        color: var(--text-color);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="reveal">
+      <div class="slides">
+        {% for slide in slides %} {% if slide.type == 'title' %}
+        <section
+          class="title-slide{% if not slide.image_base64 %} no-image{% endif %}"
+        >
           {% if slide.image_base64 %}
-            <div class="title-slide-background">
-              <img src="{{ slide.image_base64 }}" alt="{{ slide.image_alt or 'Presentation background' }}" />
-            </div>
-            <div class="title-slide-overlay"></div>
+          <div class="title-slide-background">
+            <img
+              src="{{ slide.image_base64 }}"
+              alt="{{ slide.image_alt or 'Presentation background' }}"
+            />
+          </div>
+          <div class="title-slide-overlay"></div>
           {% endif %}
           <div class="title-slide-content">
             <h1>{{ slide.title }}</h1>
           </div>
         </section>
-      
-      {# REMOVED the 'section' slide type as it's no longer generated #}
 
-      {% elif slide.type in ['main', 'main-image-dominant', 'main-image-dominant-2', 'main-text-focus'] %}
-        {# This is a generic handler for all main slide layouts #}
-        <section class="{{ slide.type }}">
+        {% elif slide.type == 'main' %}
+        <!--
+          This is the new unified content slide.
+          It automatically alternates the image position based on its order.
+          Just use type: 'main' for all your content slides.
+        -->
+        {% set layout_class = 'layout-image-left' if loop.index is even else
+        'layout-image-right' %}
+        <section class="main-slide {{ layout_class }}">
           <h2>{{ slide.title }}</h2>
-          
-          {% if slide.type == 'main' %}
-            <div class="main-slide-content">
-              <div class="main-slide-text">
-                {{ slide.body | format_bullets | safe }}
-              </div>
-              <div class="main-slide-image">
-                {% if slide.image_base64 %}<img src="{{ slide.image_base64 }}" alt="{{ slide.image_alt }}" />{% else %}<div class="no-image-placeholder">Visual Here</div>{% endif %}
-              </div>
+          <div class="content-grid">
+            <div class="text-container">
+              {{ slide.body | format_bullets | safe }}
             </div>
-          {% elif slide.type == 'main-image-dominant' %}
-            <div class="content-container">
-              <div class="image-section">
-                {% if slide.image_base64 %}<img src="{{ slide.image_base64 }}" alt="{{ slide.image_alt }}" />{% else %}<div class="no-image-placeholder">Visual Here</div>{% endif %}
-              </div>
-              <div class="text-section">
-                {{ slide.body | format_bullets | safe }}
-              </div>
+            <div class="image-container">
+              {% if slide.image_base64 %}<img
+                src="{{ slide.image_base64 }}"
+                alt="{{ slide.image_alt }}"
+              />{% else %}
+              <div class="no-image-placeholder">Visual Here</div>
+              {% endif %}
             </div>
-          {% elif slide.type == 'main-image-dominant-2' %}
-             <div class="content-container">
-              <div class="text-section">
-                {{ slide.body | format_bullets | safe }}
-              </div>
-              <div class="image-section">
-                {% if slide.image_base64 %}<img src="{{ slide.image_base64 }}" alt="{{ slide.image_alt }}" />{% else %}<div class="no-image-placeholder">Visual Here</div>{% endif %}
-              </div>
-            </div>
-          {% elif slide.type == 'main-text-focus' %}
-            <div class="focus-content">
-              <div class="main-text">
-                {{ slide.body | format_bullets | safe }}
-              </div>
-              <div class="accent-image">
-                {% if slide.image_base64 %}<img src="{{ slide.image_base64 }}" alt="{{ slide.image_alt }}" />{% else %}<div class="no-image-placeholder">Visual Here</div>{% endif %}
-              </div>
-            </div>
-          {% endif %}
+          </div>
         </section>
 
-      {% elif slide.type == 'thankyou' %}
+        {% elif slide.type == 'thankyou' %}
         <section class="thankyou-slide">
           <h3>{{ slide.title }} 🙏</h3>
-          <p style="font-style: italic;">{{ slide.subtitle }}</p>
+          <p style="font-style: italic">{{ slide.subtitle }}</p>
         </section>
-      {% endif %}
-    {% endfor %}
-  </div>
-</div>
+        {% endif %} {% endfor %}
+      </div>
+    </div>
 
-<script src="https://cdn.jsdelivr.net/npm/reveal.js/dist/reveal.js"></script>
-<script>
-function updateScale() {
-  const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
-  document.documentElement.style.setProperty('--reveal-scale', scale);
-}
-Reveal.initialize({ width: 1920, height: 1080, margin: 0, minScale: 0.1, maxScale: 3, controls: true, progress: true, center: false, hash: true, transition: 'slide', transitionSpeed: 'fast' });
-window.addEventListener('resize', updateScale);
-updateScale();
-</script>
-
-</body>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js/dist/reveal.js"></script>
+    <script>
+      function updateScale() {
+        const scale = Math.min(
+          window.innerWidth / 1920,
+          window.innerHeight / 1080
+        );
+        document.documentElement.style.setProperty("--reveal-scale", scale);
+      }
+      Reveal.initialize({
+        width: 1920,
+        height: 1080,
+        margin: 0,
+        minScale: 0.1,
+        maxScale: 3,
+        controls: true,
+        progress: true,
+        center: false,
+        hash: true,
+        transition: "slide",
+        transitionSpeed: "fast",
+      });
+      window.addEventListener("resize", updateScale);
+      updateScale();
+    </script>
+  </body>
 </html>
