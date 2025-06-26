@@ -139,7 +139,7 @@
     </div>
 
     <script>
-        const API_BASE = 'http://localhost:8000';
+        const API_BASE = 'https://sutradhaar.zsapiens.com';
         let currentScriptId = null;
 
         function showMainPage() {
@@ -318,43 +318,15 @@
             }
             slides.forEach((slide, index) => {
                 const slideDiv = document.createElement('div');
-                slideDiv.className = 'p-4 bg-gray-100 rounded-lg shadow-inner';
-
-                const slideContentHTML = Array.isArray(slide.slide_content) 
-                    ? slide.slide_content.map(item => `<li>${item}</li>`).join('') 
-                    : `<li>${slide.slide_content || ''}</li>`;
-
-                let visualDetailsHTML = '';
-                switch (slide.visual_type) {
-                    case 'ai_image':
-                        visualDetailsHTML = `<div class="text-xs text-gray-500 mt-2"><strong>Prompt:</strong> <em class="text-gray-700">${slide.image_prompt || 'Not specified'}</em></div>`;
-                        break;
-                    case 'chart':
-                        const chartData = slide.chart_data ? JSON.stringify(JSON.parse(slide.chart_data), null, 2) : '{}';
-                        visualDetailsHTML = `
-                            <div class="text-xs text-gray-500 mt-2">
-                                <strong>Chart Data:</strong>
-                                <pre class="bg-gray-200 p-2 mt-1 rounded-md text-gray-800 text-xs overflow-x-auto"><code>${chartData}</code></pre>
-                            </div>`;
-                        break;
-                    case 'flowchart':
-                        visualDetailsHTML = `
-                            <div class="text-xs text-gray-500 mt-2">
-                                <strong>Flowchart (Mermaid):</strong>
-                                <pre class="bg-gray-200 p-2 mt-1 rounded-md text-gray-800 text-xs overflow-x-auto"><code>${slide.flowchart_code || 'Not specified'}</code></pre>
-                            </div>`;
-                        break;
-                    default:
-                        visualDetailsHTML = `<div class="text-xs text-gray-500 mt-2"><em>Visual type: ${slide.visual_type}</em></div>`;
-                }
-
+                slideDiv.className = 'p-3 bg-gray-100 rounded-md';
+                const slideContentHTML = Array.isArray(slide.slide_content) ? slide.slide_content.map(item => `<li>${item}</li>`).join('') : `<li>${slide.slide_content}</li>`;
                 slideDiv.innerHTML = `
                     <h4 class="font-semibold text-blue-700">Slide ${index + 1}: ${slide.title}</h4>
                     <p class="text-sm text-gray-600 mt-1"><strong>Narration:</strong> ${slide.narration}</p>
                     <div class="text-sm text-gray-600 mt-1"><strong>On-screen Content:</strong>
                         <ul class="list-disc list-inside pl-4">${slideContentHTML}</ul>
                     </div>
-                    ${visualDetailsHTML}
+                    <p class="text-xs text-gray-500 mt-2"><em>Visual: ${slide.visual_type}</em></p>
                 `;
                 container.appendChild(slideDiv);
             });

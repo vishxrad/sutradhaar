@@ -9,6 +9,7 @@ from typing import Optional, List, Dict, Any
 
 # --- Database Connection ---
 
+
 @contextmanager
 def get_db_connection():
     """Context manager for MySQL database connections"""
@@ -36,7 +37,10 @@ def get_db_connection():
 
 
 def init_database():
-    """Initialize the database with required tables for MySQL"""
+    """
+    Initialize the database with required tables for MySQL.
+    NOTE: Updated to use TIMESTAMP to match the migrated schema.
+    """
     with get_db_connection() as conn:
         cursor = conn.cursor()
         db_name = os.getenv("DB_NAME")
@@ -49,8 +53,8 @@ def init_database():
                 topic TEXT NOT NULL,
                 raw_script LONGTEXT NOT NULL,
                 parsed_script JSON NOT NULL,
-                created_at DOUBLE NOT NULL,
-                updated_at DOUBLE NOT NULL
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB;
         """
         )
@@ -62,7 +66,7 @@ def init_database():
                 script_id VARCHAR(255) NOT NULL,
                 pdf_path VARCHAR(255) NOT NULL,
                 filename VARCHAR(255) NOT NULL,
-                created_at DOUBLE NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 file_size BIGINT,
                 pdf_images_path VARCHAR(255),
                 FOREIGN KEY (script_id) REFERENCES scripts(script_id) ON DELETE CASCADE,
@@ -87,7 +91,7 @@ def init_database():
                 image_path VARCHAR(255),
                 unsplash_url TEXT,
                 source VARCHAR(50),
-                created_at DOUBLE NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (script_id) REFERENCES scripts(script_id) ON DELETE CASCADE,
                 UNIQUE(script_id, slide_key)
             ) ENGINE=InnoDB;
@@ -105,7 +109,7 @@ def init_database():
                 content TEXT NOT NULL,
                 audio_path VARCHAR(255) NOT NULL,
                 speaker VARCHAR(50) NOT NULL,
-                created_at DOUBLE NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (script_id) REFERENCES scripts(script_id) ON DELETE CASCADE,
                 UNIQUE(script_id, audio_type, segment_idx, slide_idx)
             ) ENGINE=InnoDB;
@@ -121,7 +125,7 @@ def init_database():
                 image_path VARCHAR(255) NOT NULL,
                 filename VARCHAR(255) NOT NULL,
                 file_size BIGINT NOT NULL,
-                created_at DOUBLE NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (script_id) REFERENCES scripts(script_id) ON DELETE CASCADE,
                 UNIQUE(script_id, slide_number)
             ) ENGINE=InnoDB;
@@ -140,19 +144,20 @@ def save_script_to_db(
     script_id: str, topic: str, raw_script: str, parsed_script: List[dict]
 ) -> bool:
     """Save or update script data in the MySQL database."""
+    # CORRECTED: Removed created_at and updated_at to let MySQL handle them.
     sql = """
-        INSERT INTO scripts (script_id, topic, raw_script, parsed_script, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO scripts (script_id, topic, raw_script, parsed_script)
+        VALUES (%s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             topic = VALUES(topic),
             raw_script = VALUES(raw_script),
             parsed_script = VALUES(parsed_script),
-            updated_at = VALUES(updated_at)
+            updated_at = CURRENT_TIMESTAMP
     """
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            current_time = time.time()
+            # CORRECTED: No longer passing time values.
             cursor.execute(
                 sql,
                 (
@@ -160,8 +165,6 @@ def save_script_to_db(
                     topic,
                     raw_script,
                     json.dumps(parsed_script),
-                    current_time,
-                    current_time,
                 ),
             )
             conn.commit()
@@ -208,21 +211,23 @@ def get_all_scripts_from_db() -> List[Dict[str, Any]]:
 
 def save_images_to_db(script_id: str, images_data: Dict[str, Any]) -> bool:
     """Save image data to the MySQL database."""
+    # CORRECTED: Removed created_at from the INSERT statement.
     sql = """
         INSERT INTO images (script_id, segment_idx, slide_idx, slide_key, segment_title, segment_summary,
-                            slide_title, slide_narration, image_prompt, image_path, unsplash_url, source, created_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            slide_title, slide_narration, image_prompt, image_path, unsplash_url, source)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            current_time = time.time()
+            # CORRECTED: Removed time.time() call.
             cursor.execute("DELETE FROM images WHERE script_id = %s", (script_id,))
 
             for slide_key, image_info in images_data.items():
                 parts = slide_key.split("_")
                 segment_idx = int(parts[1]) if len(parts) > 1 else 0
                 slide_idx = int(parts[3]) if len(parts) > 3 else 0
+                # CORRECTED: No longer passing time value.
                 cursor.execute(
                     sql,
                     (
@@ -238,7 +243,6 @@ def save_images_to_db(script_id: str, images_data: Dict[str, Any]) -> bool:
                         image_info.get("image_path"),
                         image_info.get("unsplash_url"),
                         image_info.get("source"),
-                        current_time,
                     ),
                 )
             conn.commit()
@@ -268,14 +272,14 @@ def get_images_from_db(script_id: str) -> Dict[str, Any]:
 
 def save_audio_to_db(script_id: str, audio_files: Dict[str, Any]) -> bool:
     """Save audio file paths to the MySQL database."""
+    # CORRECT: This function was already updated correctly.
     sql = """
-        INSERT INTO audio (script_id, audio_type, segment_idx, slide_idx, content, audio_path, speaker, created_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO audio (script_id, audio_type, segment_idx, slide_idx, content, audio_path, speaker)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
     """
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            current_time = time.time()
             cursor.execute("DELETE FROM audio WHERE script_id = %s", (script_id,))
 
             for audio_info in audio_files.values():
@@ -289,7 +293,6 @@ def save_audio_to_db(script_id: str, audio_files: Dict[str, Any]) -> bool:
                         audio_info.get("content"),
                         audio_info.get("audio_path"),
                         audio_info.get("speaker"),
-                        current_time,
                     ),
                 )
             conn.commit()
@@ -327,9 +330,10 @@ def save_presentation_to_db(
     script_id: str, pdf_path: str, filename: str, file_size: int
 ) -> bool:
     """Save presentation PDF path to the MySQL database."""
+    # CORRECT: This function was already updated correctly.
     sql = """
-        INSERT INTO presentations (script_id, pdf_path, filename, created_at, file_size)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO presentations (script_id, pdf_path, filename, file_size)
+        VALUES (%s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             pdf_path = VALUES(pdf_path),
             filename = VALUES(filename),
@@ -338,9 +342,7 @@ def save_presentation_to_db(
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                sql, (script_id, pdf_path, filename, time.time(), file_size)
-            )
+            cursor.execute(sql, (script_id, pdf_path, filename, file_size))
             conn.commit()
             cursor.close()
             return True
@@ -367,16 +369,18 @@ def get_presentation_from_db(script_id: str) -> Optional[Dict[str, Any]]:
 
 def save_pdf_images_to_db(script_id: str, images_data: List[dict]) -> bool:
     """Save individual PDF image paths to the MySQL database."""
+    # CORRECTED: Removed created_at from the INSERT statement.
     sql = """
-        INSERT INTO pdf_images (script_id, slide_number, image_path, filename, file_size, created_at)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO pdf_images (script_id, slide_number, image_path, filename, file_size)
+        VALUES (%s, %s, %s, %s, %s)
     """
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            current_time = time.time()
+            # CORRECTED: Removed time.time() call.
             cursor.execute("DELETE FROM pdf_images WHERE script_id = %s", (script_id,))
             for image_info in images_data:
+                # CORRECTED: No longer passing time value.
                 cursor.execute(
                     sql,
                     (
@@ -385,7 +389,6 @@ def save_pdf_images_to_db(script_id: str, images_data: List[dict]) -> bool:
                         image_info["image_path"],
                         image_info["filename"],
                         image_info["file_size"],
-                        current_time,
                     ),
                 )
             conn.commit()

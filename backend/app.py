@@ -217,11 +217,20 @@ import re
 
 # In main.py, update the parse_script_data function
 
+# main.py
+
+# Replace the existing parse_script_data function with this corrected version
+
 def parse_script_data(script_text):
     """
-    Parses script text, handling and CLEANING conditional visual types.
+    Parses script text, handling and cleaning conditional visual types.
+    This version is hardened against trailing text from the LLM.
     """
     slides_data = []
+    # First, let's clean the input text by removing common LLM trailer comments
+    # This looks for a double newline followed by '(', '[', or '*' and removes it and everything after.
+    cleaned_script_text = re.sub(r'\n\n[\(\[\*].*$', '', script_text, flags=re.DOTALL).strip()
+
     slide_pattern = re.compile(
         r"Slide\s*\d+\s*:\s*"
         r"Title:\s*(?P<title>.*?)\s*"
@@ -233,7 +242,7 @@ def parse_script_data(script_text):
         re.DOTALL | re.IGNORECASE,
     )
 
-    for match in slide_pattern.finditer(script_text):
+    for match in slide_pattern.finditer(cleaned_script_text):
         groups = match.groupdict()
         
         raw_content = groups.get("slide_content", "").strip()
@@ -251,18 +260,25 @@ def parse_script_data(script_text):
         }
 
         visual_data = groups.get("visual_data", "").strip()
+
+        # --- THIS IS THE FIX ---
+        # The regex patterns below are now non-greedy and look for a proper end.
         if slide_info["visual_type"] == "ai_image":
-            prompt_match = re.search(r"image_prompt:\s*(.*)", visual_data, re.DOTALL)
+            # (.*?) is non-greedy. It stops at the first sign of a double newline or the end of the string.
+            prompt_match = re.search(r"image_prompt:\s*(.*?)(?:\n\n|$)", visual_data, re.DOTALL)
             slide_info["image_prompt"] = prompt_match.group(1).strip() if prompt_match else ""
+        
         elif slide_info["visual_type"] == "chart":
-            data_match = re.search(r"chart_data:\s*({.*})", visual_data, re.DOTALL)
+            # This regex is already robust because it looks for a closing brace '}'
+            data_match = re.search(r"chart_data:\s*({.*?})", visual_data, re.DOTALL)
             slide_info["chart_data"] = data_match.group(1).strip() if data_match else "{}"
+        
         elif slide_info["visual_type"] == "flowchart":
-            code_match = re.search(r"flowchart_code:\s*(.*)", visual_data, re.DOTALL)
+            # Apply the same non-greedy fix here for robustness
+            code_match = re.search(r"flowchart_code:\s*(.*?)(?:\n\n|$)", visual_data, re.DOTALL)
             if code_match:
-                # --- THIS IS THE FIX ---
-                # Clean the mermaid code: remove trailing junk like '---'
                 mermaid_code = code_match.group(1).strip()
+                # Also keep the original cleanup for trailing characters
                 slide_info["flowchart_code"] = mermaid_code.strip().rstrip(';').strip().rstrip('-').strip()
             else:
                 slide_info["flowchart_code"] = ""
@@ -270,7 +286,6 @@ def parse_script_data(script_text):
         slides_data.append(slide_info)
 
     return slides_data
-
 
 
 
@@ -833,11 +848,12 @@ def generate_script(request: ScriptRequest):
 
     ---
     Now, generate the complete script for the topic "{topic}" following these strict rules and formats for all {total_slides} slides.
+    Do NOT generate a summary of all the 
     """
 
     try:
         response = client.chat.completions.create(
-            model="Qwen/Qwen3-14B",
+            model="Qwen/Qwen3-235B-A22B",
             messages=[
                 {
                     "role": "system",
