@@ -132,6 +132,24 @@ def init_database():
         """
         )
 
+        # --- NEW TABLE: presentation_html ---
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS presentation_html (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                script_id VARCHAR(255) NOT NULL,
+                html_path VARCHAR(255) NOT NULL,
+                filename VARCHAR(255) NOT NULL,
+                file_size BIGINT NOT NULL,
+                template_name VARCHAR(255) NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (script_id) REFERENCES scripts(script_id) ON DELETE CASCADE,
+                UNIQUE(script_id, template_name)
+            ) ENGINE=InnoDB;
+        """
+        )
+
         conn.commit()
         cursor.close()
         print("Database tables are ready.")
@@ -442,3 +460,54 @@ def get_all_assets_from_db() -> List[Dict[str, Any]]:
     except Exception as e:
         print(f"Error retrieving all assets from database: {e}")
         return []
+
+# --- NEW CRUD Functions for presentation_html ---
+
+def save_presentation_html_to_db(
+    script_id: str,
+    html_path: str,
+    filename: str,
+    file_size: int,
+    template_name: str,
+) -> bool:
+    """Save or update presentation HTML data in the MySQL database."""
+    sql = """
+        INSERT INTO presentation_html (script_id, html_path, filename, file_size, template_name)
+        VALUES (%s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            html_path = VALUES(html_path),
+            filename = VALUES(filename),
+            file_size = VALUES(file_size),
+            updated_at = CURRENT_TIMESTAMP
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                sql, (script_id, html_path, filename, file_size, template_name)
+            )
+            conn.commit()
+            cursor.close()
+            return True
+    except Exception as e:
+        print(f"Error saving presentation HTML to database: {e}")
+        return False
+
+
+def get_presentation_html_from_db(
+    script_id: str, template_name: str
+) -> Optional[Dict[str, Any]]:
+    """Retrieve presentation HTML data from the MySQL database."""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT * FROM presentation_html WHERE script_id = %s AND template_name = %s",
+                (script_id, template_name),
+            )
+            row = cursor.fetchone()
+            cursor.close()
+            return row
+    except Exception as e:
+        print(f"Error retrieving presentation HTML from database: {e}")
+        return None

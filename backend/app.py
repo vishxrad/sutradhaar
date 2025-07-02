@@ -31,8 +31,9 @@ import tempfile
 import shutil
 import glob
 from enum import Enum
+import json
 
-# Import all database functions from the new file
+# Import all database functions, including the new ones for HTML
 from database import (
     init_database,
     save_script_to_db,
@@ -47,6 +48,9 @@ from database import (
     save_pdf_images_to_db,
     get_pdf_images_from_db,
     get_all_assets_from_db,
+    # --- NEW IMPORTS ---
+    save_presentation_html_to_db,
+    get_presentation_html_from_db,
 )
 
 
@@ -71,7 +75,7 @@ def on_startup():
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -120,7 +124,7 @@ class ScriptRequest(BaseModel):
     custom_duration_minutes: Optional[float] = Field(
         default=None,
         gt=0,
-        le=10, # Set a reasonable upper limit of 10 minutes
+        le=60, # Set a reasonable upper limit of 10 minutes
         description="Specify a custom video duration in minutes. If set, this overrides the 'video_type' duration.",
     )
 
@@ -182,6 +186,20 @@ class CombineVideosRequest(BaseModel):
     output_filename: Optional[str] = Field(
         "final_presentation.mp4", description="Filename for the combined video."
     )
+
+# ### --- ADDED --- ###
+# # Pydantic models for the new /api/save-script endpoint, which is called by the frontend.
+# class SlideModel(BaseModel):
+#     title: str
+#     narration: str
+#     slide_content: List[str]
+
+# class SaveScriptRequest(BaseModel):
+#     script_id: str
+#     topic: str
+#     raw_script: str
+#     parsed_script: List[SlideModel]
+# ### --- END ADDED --- ###
 
 
 # Initialize OpenAI client
@@ -453,7 +471,7 @@ async def generate_visual_for_slide(
 # Add these helper functions near your other helpers in main.py
 
 import plotly.graph_objects as go
-import json
+# import json # Already imported at the top
 
 async def generate_plotly_chart_image(chart_data: str, output_path: str) -> str:
     """
@@ -474,14 +492,20 @@ async def generate_plotly_chart_image(chart_data: str, output_path: str) -> str:
 
         fig.update_layout(
             title_text=data.get("title", "Chart"),
-            template="plotly_white",
-            font=dict(family="Arial, sans-serif", size=18, color="black")
+            title_font_size=24,
+            xaxis_title=data.get("x_title", ""),
+            yaxis_title=data.get("y_title", ""),
+            xaxis=dict(title_font=dict(size=30), tickfont=dict(size=30)),
+            yaxis=dict(title_font=dict(size=30), tickfont=dict(size=30)),
+            font=dict(family="Arial, sans-serif", size=30, color="black"),
+            template="plotly_white"
         )
+
         
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
         # Use asyncio.to_thread to run the blocking I/O operation
-        await asyncio.to_thread(fig.write_image, output_path, width=1280, height=720, scale=1)
+        await asyncio.to_thread(fig.write_image, output_path, width=1280, height=720, scale=3)
         
         print(f"Plotly chart saved to {output_path}")
         return output_path
@@ -749,6 +773,148 @@ async def create_single_video_chunk(
     }
 
 
+
+### --- MODIFIED --- ###
+# This entire helper function has been updated to fix the data parsing error
+# AND to handle fetching from or saving to the database.
+async def _generate_presentation_html_content(script_id: str, template_name: str) -> tuple[str, str, str]:
+    """
+    A helper function to fetch data and render presentation HTML.
+    It now checks the database first.
+    Returns a tuple of (html_content, topic, html_file_path).
+    """
+    # 1. Try to fetch from the database
+    html_data_from_db = get_presentation_html_from_db(script_id, template_name)
+    if html_data_from_db and os.path.exists(html_data_from_db["html_path"]):
+        print(f"Loading HTML for {script_id} with template {template_name} from database.")
+        async with aiofiles.open(html_data_from_db["html_path"], 'r', encoding='utf-8') as f:
+            html_content = await f.read()
+        
+        # We need the topic too, so fetch script data
+        script_data = get_script_from_db(script_id)
+        if not script_data:
+            raise HTTPException(status_code=404, detail=f"Script '{script_id}' not found")
+        topic = script_data.get("topic", "Untitled Presentation")
+
+        return html_content, topic, html_data_from_db["html_path"]
+
+    # If not in DB or file doesn't exist, generate it
+    print(f"Generating new HTML for {script_id} with template {template_name}.")
+    
+    # 2. Get all the necessary data from the database
+    script_data = get_script_from_db(script_id)
+    if not script_data:
+        raise HTTPException(status_code=404, detail=f"Script '{script_id}' not found")
+
+    images_data = get_images_from_db(script_id) or {}
+    
+    # Defensively handle the 'parsed_script' field, which might be a JSON string
+    # if it wasn't deserialized correctly when fetched from the database.
+    parsed_slides_raw = script_data.get("parsed_script", [])
+    parsed_slides = []
+    if isinstance(parsed_slides_raw, str):
+        if not parsed_slides_raw.strip(): # Handle empty string case
+            parsed_slides = []
+        else:
+            try:
+                # This is the critical fix: parse the string into a Python list
+                parsed_slides = json.loads(parsed_slides_raw)
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=500, detail="Database integrity error: 'parsed_script' is a malformed JSON string.")
+    elif isinstance(parsed_slides_raw, list):
+        # If it's already a list, use it as is.
+        parsed_slides = parsed_slides_raw
+    else:
+        # Handle other unexpected types like None, int, etc.
+        raise HTTPException(status_code=500, detail=f"Database integrity error: 'parsed_script' is of an unexpected type: {type(parsed_slides_raw).__name__}")
+
+    topic = script_data.get("topic", "Untitled Presentation")
+
+    # 2. Transform the flat slides structure into the format expected by templates
+    try:
+        formatted_slides = []
+        
+        # Title slide
+        formatted_slides.append({
+            "type": "title",
+            "title": topic,
+            "order": 1
+        })
+        
+        # Main content slides
+        # The rest of the function now uses the correctly parsed `parsed_slides`
+        for idx, slide in enumerate(parsed_slides, 2):
+            # This check ensures that each item in the list is a dictionary
+            if not isinstance(slide, dict):
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Data corruption: Expected a dictionary for slide {idx-1}, but got type {type(slide).__name__}."
+                )
+
+            slide_key = f"slide_{idx-1}"
+            image_info = images_data.get(slide_key, {})
+            
+            image_base64 = None
+            if image_info.get("image_path") and os.path.exists(image_info["image_path"]):
+                try:
+                    with open(image_info["image_path"], "rb") as img_file:
+                        image_data = img_file.read()
+                        mime_type = mimetypes.guess_type(image_info["image_path"])[0] or "image/jpeg"
+                        image_base64 = f"data:{mime_type};base64,{base64.b64encode(image_data).decode()}"
+                except Exception as e:
+                    print(f"Warning: Could not encode image {image_info['image_path']}: {e}")
+            
+            formatted_slides.append({
+                "type": "main",
+                "title": slide.get("title", f"Slide {idx-1}"),
+                "body": slide.get("slide_content", []),
+                "image_base64": image_base64,
+                "image_alt": slide.get("image_prompt", ""),
+                "order": idx
+            })
+        
+        # Thank you slide
+        formatted_slides.append({
+            "type": "thankyou",
+            "title": "Thank You",
+            "subtitle": "Made using Sutradhaar",
+            "order": len(formatted_slides) + 1
+        })
+
+        html_content = create_presentation(
+            topic=topic,
+            slides=formatted_slides,
+            template_name=template_name,
+            images_data=images_data,
+            script_id=script_id
+        )
+        
+        # Save the generated HTML to a file
+        presentations_dir = "generated_presentations"
+        os.makedirs(presentations_dir, exist_ok=True)
+        filename = f"{script_id}_{template_name}_presentation.html"
+        html_path = os.path.join(presentations_dir, filename)
+
+        async with aiofiles.open(html_path, 'w', encoding='utf-8') as f:
+            await f.write(html_content)
+        
+        # Save HTML metadata to the database
+        file_size = os.path.getsize(html_path)
+        if not save_presentation_html_to_db(
+            script_id, html_path, filename, file_size, template_name
+        ):
+            print(f"Warning: Failed to save HTML path '{html_path}' to database.")
+
+        return html_content, topic, html_path
+
+    except Exception as e:
+        # Re-raise to be caught by the endpoint handler
+        import traceback
+        print(traceback.format_exc())
+        raise Exception(f"Failed to generate HTML content: {e}")
+### --- END MODIFIED --- ###
+
+
 # --- API ENDPOINTS ---
 
 @app.get("/")
@@ -853,7 +1019,7 @@ def generate_script(request: ScriptRequest):
 
     try:
         response = client.chat.completions.create(
-            model="Qwen/Qwen3-235B-A22B",
+            model="deepseek-ai/DeepSeek-V3-0324",
             messages=[
                 {
                     "role": "system",
@@ -886,6 +1052,31 @@ def generate_script(request: ScriptRequest):
         raise HTTPException(
             status_code=500, detail=f"Error generating script: {e}"
         )
+
+# ### --- ADDED --- ###
+# @app.post("/api/save-script")
+# def save_script(request: SaveScriptRequest):
+#     """
+#     Save the (potentially edited) script back to the database.
+#     This endpoint was missing from the original file but is called by the frontend.
+#     """
+#     try:
+#         # Pydantic automatically validates the incoming data.
+#         # We convert the list of Pydantic models to a list of dicts for saving.
+#         parsed_script_dicts = [slide.dict() for slide in request.parsed_script]
+
+#         # NOTE: This should ideally be an UPDATE operation. You may need to adjust
+#         # your database.py to handle this (e.g., using INSERT OR REPLACE for SQLite).
+#         if save_script_to_db(request.script_id, request.topic, request.raw_script, parsed_script_dicts):
+#             return {"message": "Script saved successfully."}
+#         else:
+#             raise HTTPException(status_code=500, detail="Failed to save script to database")
+
+#     except Exception as e:
+#         print(f"Error in /api/save-script: {e}")
+#         raise HTTPException(status_code=500, detail=f"Error saving script: {str(e)}")
+# ### --- END ADDED --- ###
+
 
 @app.post("/generate-images")
 async def generate_images(request: ImageRequest):
@@ -973,97 +1164,83 @@ def get_script_images(script_id: str):
 
 
 
+# In main.py, add the new endpoint
+
+@app.post("/generate-presentation/html", summary="Generate Presentation as HTML")
+async def generate_presentation_html(request: HTMLGenerationRequest):
+    """
+    Generates the HTML for a presentation and saves it.
+    This is a preliminary step before generating a PDF or video.
+    """
+    try:
+        html_content, topic, html_path = await _generate_presentation_html_content(
+            request.script_id, request.template
+        )
+
+        # The saving to file and DB is now handled inside _generate_presentation_html_content
+        # We just need to ensure the file path is accessible and return it.
+
+        filename = os.path.basename(html_path)
+        return {
+            "message": "HTML presentation generated successfully.",
+            "script_id": request.script_id,
+            "topic": topic,
+            "html_file_path": html_path,
+            "html_url": f"/presentations/{filename}"
+        }
+    except HTTPException as e:
+        raise e # Re-raise existing HTTP exceptions
+    except Exception as e:
+        print(f"Error in /generate-presentation/html: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+# In main.py, REPLACE your existing PDF endpoint with this refactored version
+
 @app.post("/generate-presentation/pdf", summary="Generate Presentation as PDF")
 async def generate_presentation_pdf(request: PresentationPDFRequest):
     """
     Generate and return a PDF presentation using a selected template.
+    This now uses the shared HTML generation logic, fetching from DB if available.
     """
     script_id = request.script_id
     template_name = request.template.value
 
-    # 1. Get all the necessary data from the database
-    script_data = get_script_from_db(script_id)
-    if not script_data:
-        raise HTTPException(status_code=404, detail="Script not found")
+    # Try to get the HTML path from the database first
+    html_data_from_db = get_presentation_html_from_db(script_id, template_name)
+    temp_html_path = None # Will be set if we generate or use existing HTML file
 
-    images_data = get_images_from_db(script_id) or {}
-    parsed_slides = script_data.get("parsed_script", [])
-
-    # 2. Transform the flat slides structure into the format expected by templates
     try:
-        formatted_slides = []
-        
-        # Title slide
-        formatted_slides.append({
-            "type": "title",
-            "title": script_data["topic"],
-            "order": 1
-        })
-        
-        # Main content slides
-        for idx, slide in enumerate(parsed_slides, 2):
-            slide_key = f"slide_{idx-1}"  # slides are 1-indexed in images_data
-            image_info = images_data.get(slide_key, {})
-            
-            # Convert image to base64 if available
-            image_base64 = None
-            if image_info.get("image_path") and os.path.exists(image_info["image_path"]):
-                try:
-                    with open(image_info["image_path"], "rb") as img_file:
-                        image_data = img_file.read()
-                        file_ext = Path(image_info["image_path"]).suffix.lower()
-                        mime_type = "image/jpeg" if file_ext in [".jpg", ".jpeg"] else "image/png"
-                        image_base64 = f"data:{mime_type};base64,{base64.b64encode(image_data).decode()}"
-                except Exception as e:
-                    print(f"Error encoding image {image_info['image_path']}: {e}")
-            
-            formatted_slides.append({
-                "type": "main",
-                "title": slide.get("title", f"Slide {idx-1}"),
-                "body": slide.get("slide_content", []),  # This will be formatted by the template filter
-                "image_base64": image_base64,
-                "image_alt": slide.get("image_prompt", ""),
-                "order": idx
-            })
-        
-        # Thank you slide
-        formatted_slides.append({
-            "type": "thankyou",
-            "title": "Thank You",
-            "subtitle": "Made using Sutradhaar",
-            "order": len(formatted_slides) + 1
-        })
+        if html_data_from_db and os.path.exists(html_data_from_db["html_path"]):
+            print(f"Using existing HTML for PDF generation from: {html_data_from_db['html_path']}")
+            temp_html_path = html_data_from_db["html_path"]
+        else:
+            # If HTML is not found or file is missing, generate it.
+            print(f"HTML not found in DB or file missing, generating it for PDF conversion.")
+            html_content, _, generated_html_path = await _generate_presentation_html_content(
+                script_id, template_name
+            )
+            temp_html_path = generated_html_path # This is now the actual file path on disk
 
-        html_content = create_presentation(
-            topic=script_data["topic"],
-            slides=formatted_slides,
-            template_name=template_name,
-            images_data=images_data,
-            script_id=script_id
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate HTML: {e}")
+        if not temp_html_path or not os.path.exists(temp_html_path):
+             raise HTTPException(status_code=500, detail="HTML file path not available for PDF conversion.")
 
-    # 3. The rest of the PDF generation logic remains the same
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as temp_html:
-        temp_html.write(html_content)
-        temp_html_path = temp_html.name
-    
-    presentations_dir = "generated_presentations"
-    os.makedirs(presentations_dir, exist_ok=True)
-    filename = f"{script_id}_{template_name}_presentation.pdf"
-    pdf_path = os.path.join(presentations_dir, filename)
-    
-    try:
+        presentations_dir = "generated_presentations"
+        os.makedirs(presentations_dir, exist_ok=True)
+        filename = f"{script_id}_{template_name}_presentation.pdf"
+        pdf_path = os.path.join(presentations_dir, filename)
+        
         cmd = ["decktape", "reveal", temp_html_path, pdf_path]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         
         if result.returncode != 0:
-            raise HTTPException(status_code=500, detail=f"PDF generation failed: {result.stderr}")
+            raise HTTPException(status_code=500, detail=f"PDF generation failed (decktape): {result.stderr}")
         
         if not os.path.exists(pdf_path) or os.path.getsize(pdf_path) == 0:
-            raise HTTPException(status_code=500, detail="PDF file was not created")
+            raise HTTPException(status_code=500, detail="PDF file was not created or is empty")
         
+        # Save metadata and convert PDF pages to images for the video
         save_presentation_to_db(script_id, pdf_path, filename, os.path.getsize(pdf_path))
         convert_pdf_to_images(script_id, pdf_path)
         
@@ -1072,9 +1249,20 @@ async def generate_presentation_pdf(request: PresentationPDFRequest):
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
         
+    except HTTPException as e:
+        raise e # Re-raise existing HTTP exceptions
+    except Exception as e:
+        print(f"Error in /generate-presentation/pdf: {e}")
+        # Ensure temporary HTML file (if created within this request) is cleaned up.
+        # This catch-all might mask specific issues, consider more granular error handling.
+        if temp_html_path and not html_data_from_db and os.path.exists(temp_html_path):
+             os.unlink(temp_html_path)
+        raise HTTPException(status_code=500, detail=f"An error occurred during PDF generation: {str(e)}")
     finally:
-        if 'temp_html_path' in locals() and os.path.exists(temp_html_path):
-            os.unlink(temp_html_path)
+        # If the HTML was newly generated as a *temp file* for this PDF conversion, delete it.
+        # If it was fetched from DB or generated and saved to 'generated_presentations', keep it.
+        # The _generate_presentation_html_content already saves it, so no need for tempfile here unless we explicitly used one.
+        pass # The current _generate_presentation_html_content saves to 'generated_presentations' not temp.
 
 
 @app.get("/presentation/{script_id}/images")
